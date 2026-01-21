@@ -5,7 +5,7 @@
 ## Version: @project-version@
 ## Dependencies: Orbit
 ## SavedVariables: OrbitTeleportDB
-## IconTexture: Interface\Icons\INV_Misc_Rune_06
+## IconTexture: Interface\AddOns\Orbit_Teleport\Orbit.png
 ## X-Curse-Project-ID: 1439533
 
 ## X-License: All Rights Reserved
