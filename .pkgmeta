@@ -1,0 +1,10 @@
+package-as: Orbit_Teleport
+
+ignore:
+  - .git
+  - .github
+  - .vscode
+  - "*.md"
+  - .stylua.toml
+  - .styluaignore
+  - .env

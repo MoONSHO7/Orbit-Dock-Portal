@@ -1,0 +1,21 @@
+## Interface: 120001, 120000
+## Title: Orbit - Teleport Dock
+## Notes: Dock-Style Teleport Bar for Orbit Edit Mode
+## Author: MoONSHO7 / M7
+## Version: @project-version@
+## Dependencies: Orbit
+## SavedVariables: OrbitTeleportDB
+## IconTexture: Interface\Icons\INV_Misc_Rune_06
+
+## X-License: All Rights Reserved
+## X-Category: Interface Enhancements
+
+# Libraries
+LibQTip-1.0\lib.xml
+
+# Data
+TeleportData.lua
+
+# Core
+TeleportScanner.lua
+TeleportDock.lua
