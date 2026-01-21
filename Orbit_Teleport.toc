@@ -14,8 +14,8 @@
 LibQTip-1.0\lib.xml
 
 # Data
-TeleportData.lua
+Core\TeleportData.lua
 
 # Core
-TeleportScanner.lua
-TeleportDock.lua
+Core\TeleportScanner.lua
+Core\TeleportDock.lua
