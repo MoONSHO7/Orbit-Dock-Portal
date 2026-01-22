@@ -4,7 +4,6 @@
 ## Author: MoONSHO7 / M7
 ## Version: @project-version@
 ## Dependencies: Orbit
-## OptionalDeps: LibQTip-1.0
 ## IconTexture: Interface\AddOns\Orbit_Portal\Orbit.png
 ## Group: Orbit
 ## Category: Orbit UI
@@ -14,8 +13,6 @@
 ## X-License: All Rights Reserved
 ## X-Category: Interface Enhancements
 
-# Libraries
-LibQTip-1.0\lib.xml
 
 # Data
 Core\PortalData.lua

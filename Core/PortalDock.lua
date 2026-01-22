@@ -15,9 +15,6 @@ end
 -- Get Engine reference for Edit Mode integration
 local OrbitEngine = Orbit.Engine
 
--- Get LibQTip for enhanced tooltips
-local LibQTip = LibStub and LibStub("LibQTip-1.0", true)
-local tooltip = nil  -- Reusable tooltip reference
 
 -- Cache frequently used globals (performance optimization)
 local math_abs = math.abs
@@ -34,30 +31,26 @@ local GetTime = GetTime
 local InCombatLockdown = InCombatLockdown
 local GetCursorPosition = GetCursorPosition
 
--- ============================================================================
--- PLUGIN REGISTRATION
--- ============================================================================
+-- [ PLUGIN REGISTRATION ] -----------------------------------------------------
 
 local SYSTEM_ID = "Orbit_Portal"
 
 local Plugin = Orbit:RegisterPlugin("Portal Dock", SYSTEM_ID, {
     defaults = {
         -- Appearance
-        IconSize = 30,
-        Spacing = 5,
+        IconSize = 34,
+        Spacing = 3,
         MaxVisible = 9,
         ArcDepth = 10,
         -- Magnification
         Magnification = true,
-        HoverScale = 1.5,
+        HoverScale = 1.2,
         -- Filtering
         HideLongCooldowns = true,
     },
 }, Orbit.Constants and Orbit.Constants.PluginGroups and Orbit.Constants.PluginGroups.Misc)
 
--- ============================================================================
--- STATE
--- ============================================================================
+-- [ STATE ] -------------------------------------------------------------------
 
 local dock = nil
 local iconPool = nil
@@ -66,13 +59,13 @@ local portalList = {}
 local isEditModeActive = false
 local scrollOffset = 0
 local isMouseOver = false
+local currentDockAlpha = RESTING_ALPHA
 local RefreshDock  -- Forward declaration for use in OnEnter
 local mythicPlusCache = {}  -- Cache for M+ ratings to survive encounter lockouts
 local pendingRefresh = false  -- Queue refresh for when combat ends
+local lastMagnifiedIndex = nil  -- Sticky magnification: remembers last magnified icon
 
--- ============================================================================
--- CONSTANTS
--- ============================================================================
+-- [ CONSTANTS ] ---------------------------------------------------------------
 
 local ANIMATION_SPEED = 6 -- Lower = smoother/slower animation (was 12)
 local RESTING_ALPHA = 0.0 -- Dock alpha when not hovered
@@ -149,23 +142,27 @@ local function FormatDuration(seconds)
     end
 end
 
--- DRY: Position icon based on current orientation
-local function PositionIconForOrientation(icon, dockFrame, arcOffset, pos, iconHalfSize, anchorFromCenter)
+-- DRY: Position icon based on current orientation (CENTER-ANCHORED)
+-- pos = the center position along the layout axis (from dock edge)
+-- Icons are anchored at their CENTER so scaling expands equally in all directions
+local function PositionIconForOrientation(icon, dockFrame, arcOffset, centerPos)
     icon:ClearAllPoints()
     if currentOrientation == "LEFT" then
-        icon:SetPoint("TOPLEFT", dockFrame, "TOPLEFT", arcOffset, -(pos - (anchorFromCenter and iconHalfSize or 0)))
+        -- Vertical layout, icons go down from top, arc curves right
+        icon:SetPoint("CENTER", dockFrame, "TOPLEFT", arcOffset, -centerPos)
     elseif currentOrientation == "RIGHT" then
-        icon:SetPoint("TOPRIGHT", dockFrame, "TOPRIGHT", -arcOffset, -(pos - (anchorFromCenter and iconHalfSize or 0)))
+        -- Vertical layout, icons go down from top, arc curves left
+        icon:SetPoint("CENTER", dockFrame, "TOPRIGHT", -arcOffset, -centerPos)
     elseif currentOrientation == "TOP" then
-        icon:SetPoint("TOPLEFT", dockFrame, "TOPLEFT", pos - (anchorFromCenter and iconHalfSize or 0), -arcOffset)
+        -- Horizontal layout, icons go right from left, arc curves down
+        icon:SetPoint("CENTER", dockFrame, "TOPLEFT", centerPos, -arcOffset)
     else -- BOTTOM
-        icon:SetPoint("BOTTOMLEFT", dockFrame, "BOTTOMLEFT", pos - (anchorFromCenter and iconHalfSize or 0), arcOffset)
+        -- Horizontal layout, icons go right from left, arc curves up
+        icon:SetPoint("CENTER", dockFrame, "BOTTOMLEFT", centerPos, arcOffset)
     end
 end
 
--- ============================================================================
--- ANIMATION STATE
--- ============================================================================
+-- [ ANIMATION STATE ] ---------------------------------------------------------
 
 local animationFrame = nil
 local targetDockAlpha = RESTING_ALPHA
@@ -175,9 +172,7 @@ local currentDockAlpha = RESTING_ALPHA
 local magnificationOffset = 0      -- Virtual scroll offset caused by magnification
 local targetMagOffset = 0          -- Target magnification offset for smooth animation
 
--- ============================================================================
--- COMBAT AND ENCOUNTER HANDLING
--- ============================================================================
+-- [ COMBAT AND ENCOUNTER HANDLING ] -------------------------------------------
 
 local function CanInteract()
     -- Disable during combat lockdown OR during boss encounters (even if dead)
@@ -234,15 +229,18 @@ local function RequestRefresh()
     end
 end
 
--- ============================================================================
--- DOCK ANIMATION - With Icon Alpha Fading
--- ============================================================================
+-- [ DOCK ANIMATION ] ----------------------------------------------------------
 
 local MIN_ICON_ALPHA = 0.4 -- Minimum alpha for icons not being hovered
 
 -- Utility: Lerp (linear interpolation)
 local function Lerp(a, b, t)
     return a + (b - a) * t
+end
+
+-- Easing function for smooth fade (quadratic)
+local function EaseInQuad(t)
+    return t * t
 end
 
 -- Calculate icon scale and alpha targets based on cursor position
@@ -265,52 +263,45 @@ local function CalculateIconTargets()
     local spacing = Plugin:GetSetting(1, "Spacing") or 5
     local hoverScale = Plugin:GetSetting(1, "HoverScale") or 1.5
     
-    -- Get cursor position relative to dock (orientation-aware)
+    -- Get cursor position in DOCK-LOCAL coordinates
+    -- stableCenterPos is stored as offset from dock edge, so we need cursor relative to dock
     local cursorX, cursorY = GetCursorPosition()
-    local uiScale = UIParent:GetEffectiveScale()
+    local uiScale = dock:GetEffectiveScale()
     cursorX = cursorX / uiScale
     cursorY = cursorY / uiScale
     
-    -- Pre-compute orientation and dock reference
+    -- Convert to dock-local coordinates
     local isHoriz = IsHorizontal()
-    local dockRef = isHoriz and dock:GetLeft() or dock:GetTop()
-    local cursorPos = isHoriz and cursorX or cursorY
+    local dockLeft, dockBottom = dock:GetLeft(), dock:GetBottom()
+    local dockTop = dock:GetTop()
     
-    if not dockRef then return end
+    if not dockLeft or not dockTop then return end
+    
+    -- For vertical layouts (LEFT/RIGHT), measure from dock top going down
+    -- For horizontal layouts (TOP/BOTTOM), measure from dock left going right
+    local cursorPos
+    if isHoriz then
+        cursorPos = cursorX - dockLeft  -- How far right from dock's left edge
+    else
+        cursorPos = dockTop - cursorY  -- How far down from dock's top edge
+    end
     
     local closestDistance = 1e9  -- Use large number instead of math.huge
     local closestIndex = 0
     local totalVisible = #visibleIcons
     
-    -- Pre-compute edge boundaries (icons that shouldn't magnify)
-    local centerCount = math_ceil(totalVisible / 3)
-    local centerStart = math_floor((totalVisible - centerCount) / 2) + 1
-    local centerEnd = centerStart + centerCount - 1
-    
-    -- Find the icon whose VISUAL BOUNDS contain the cursor
+    -- Find the icon closest to cursor using STABLE center positions
+    -- Since icons are center-anchored, their centers don't move when scaling
     for i, icon in ipairs(visibleIcons) do
-        local currentScale = icon.currentScale or 1
-        local scaledHalfSize = (iconSize * currentScale) * 0.5
+        -- Use the stored stable center position (set during layout)
+        local iconCenter = icon.stableCenterPos or 0
         
-        -- Calculate the visual center position based on base slot
-        local visualCenter
-        if isHoriz then
-            visualCenter = dockRef + ((i - 1) * (iconSize + spacing)) + (iconSize * 0.5)
-        else
-            visualCenter = dockRef - ((i - 1) * (iconSize + spacing)) - (iconSize * 0.5)
-        end
+        -- Distance from cursor to this icon's center
+        local distFromCenter = math_abs(cursorPos - iconCenter)
         
-        -- Check if cursor is within the VISUAL bounds of this icon
-        local distFromCenter = math_abs(cursorPos - visualCenter)
-        local isWithinBounds = distFromCenter <= scaledHalfSize
-        
-        -- Prioritize icons that actually contain the cursor
-        if isWithinBounds then
-            if distFromCenter < closestDistance then
-                closestDistance = distFromCenter
-                closestIndex = i
-            end
-        elseif closestIndex == 0 and distFromCenter < closestDistance then
+        -- Simple distance check - closest icon wins
+        -- This ensures we always have a target even in gaps (spacing)
+        if distFromCenter < closestDistance then
             closestDistance = distFromCenter
             closestIndex = i
         end
@@ -323,22 +314,33 @@ local function CalculateIconTargets()
     -- The center slot where hearthstone appears by default
     local centerSlotIndex = math_floor(totalVisible / 2) + 1
     
-    -- If cursor is over a specific icon (not edge), magnify it
-    -- Otherwise magnify the center (hearthstone) icon
-    if closestIndex > 0 and closestDistance < iconSize then
-        -- Check if not an edge icon (inline, no closure)
-        if closestIndex >= centerStart and closestIndex <= centerEnd then
-            visibleIcons[closestIndex].targetScale = hoverScale
-        end
-    elseif centerSlotIndex > 0 and centerSlotIndex <= totalVisible then
-        if centerSlotIndex >= centerStart and centerSlotIndex <= centerEnd then
-            visibleIcons[centerSlotIndex].targetScale = hoverScale
-        end
+    -- Determine what to magnify:
+    -- STICKY MAGNIFICATION: Keep the last magnified icon until cursor is over a different icon
+    -- ALL icons can now magnify (no edge restriction)
+    local indexToMagnify = nil
+    
+    if closestIndex > 0 then
+        -- Cursor is over an icon - update sticky state
+        indexToMagnify = closestIndex
+        lastMagnifiedIndex = closestIndex
+    elseif lastMagnifiedIndex and lastMagnifiedIndex > 0 and lastMagnifiedIndex <= totalVisible then
+        -- Cursor moved to gap - keep last magnified icon sticky
+        indexToMagnify = lastMagnifiedIndex
+    else
+        -- No previous state - fallback to center
+        indexToMagnify = centerSlotIndex
+        lastMagnifiedIndex = centerSlotIndex
+    end
+    
+    if indexToMagnify and indexToMagnify > 0 and indexToMagnify <= totalVisible then
+        visibleIcons[indexToMagnify].targetScale = hoverScale
     end
     
     -- No magnification offset - icons scale in place without shifting
     targetMagOffset = 0
 end
+
+
 
 -- Animation for dock alpha, icon scale/alpha, and fisheye layout
 local function OnAnimationUpdate(self, elapsed)
@@ -378,8 +380,8 @@ local function OnAnimationUpdate(self, elapsed)
     maxVisible = NormalizeMaxVisible(maxVisible, #visibleIcons)
     
     -- Animate each icon's scale and alpha, then reposition
-    -- Icons scale in-place at their base positions (no magnification offset shifting)
-    local currentPos = 0
+    -- DYNAMIC POSITIONING: Icons push neighbors apart based on current scale
+    local runningPos = 0  -- Running position along layout axis
     
     for _, icon in ipairs(visibleIcons) do
         local targetScale = icon.targetScale or 1
@@ -387,22 +389,47 @@ local function OnAnimationUpdate(self, elapsed)
         local currentScale = icon.currentScale or 1
         local currentAlpha = icon.currentAlpha or 1
         
-        -- Animate scale
-        if math_abs(currentScale - targetScale) > 0.001 then
-            currentScale = Lerp(currentScale, targetScale, t)
-            icon.currentScale = currentScale
-            needsUpdate = true
-        else
+        -- Animate scale - INSTANT/SNAPPY mode to prevent bounce
+        -- Icons snap to target scale immediately instead of lerping
+        if icon.currentScale ~= targetScale then
             icon.currentScale = targetScale
+            needsUpdate = true
         end
         
         -- Animate alpha
-        if math_abs(currentAlpha - targetAlpha) > 0.001 then
-            currentAlpha = Lerp(currentAlpha, targetAlpha, t)
+        -- EDGE FADING LOGIC:
+        -- Determine distance from dock center (normalized 0 to 1)
+        -- 0 = center, 1 = edge of visible area
+        local maxVisible = Plugin:GetSetting(1, "MaxVisible") or 11
+        maxVisible = NormalizeMaxVisible(maxVisible, #visibleIcons)
+        
+        -- visualCenterIndex is the middle index (e.g. 3 for 5 visible)
+        local visualCenterIndex = (maxVisible + 1) / 2
+        
+        -- Use icon.iconIndex (original display index 0..max-1) to calculate distance
+        -- +1 to make it 1-based for math
+        local distFromVisualCenter = math_abs((icon.iconIndex + 1) - visualCenterIndex)
+        
+        -- Normalized distance: 0 at center, 1.0 at the edge items
+        -- We divide by (maxVisible/2) roughly to get range
+        local normDist = distFromVisualCenter / (maxVisible * 0.5)
+        
+        -- Clamp to 0-1
+        normDist = math_max(0, math_min(1, normDist))
+        
+        -- Calculate edge alpha: 1.0 at center, fades to 0.4 at edges
+        -- Power of 2 makes it fade faster at edges (EaseInQuad style)
+        local edgeAlpha = 1.0 - (math.pow(normDist, 2.5) * 0.6) -- Valid range: 1.0 down to ~0.4
+        
+        -- Combine with targetAlpha (from hover interaction, usually 1)
+        local finalTargetAlpha = targetAlpha * edgeAlpha
+        
+        if math_abs(currentAlpha - finalTargetAlpha) > 0.001 then
+            currentAlpha = Lerp(currentAlpha, finalTargetAlpha, t)
             icon.currentAlpha = currentAlpha
             needsUpdate = true
         else
-            icon.currentAlpha = targetAlpha
+            icon.currentAlpha = finalTargetAlpha
         end
         
         -- Apply alpha
@@ -410,6 +437,11 @@ local function OnAnimationUpdate(self, elapsed)
         
         -- Calculate arc offset using cached values
         local arcOffset = CalculateArcOffset(icon.iconIndex, maxVisible, iconSize, arcDepth)
+        
+        -- MAGNIFICATION BONUS: Push magnified icons toward screen center
+        -- The more magnified, the more it bulges outward from the edge
+        local magBonus = (icon.currentScale - 1) * iconSize * 0.8
+        arcOffset = arcOffset + magBonus
         
         -- Apply scale by RESIZING the icon (not SetScale, which causes coordinate issues)
         local scaledSize = iconSize * icon.currentScale
@@ -427,16 +459,14 @@ local function OnAnimationUpdate(self, elapsed)
             icon.cooldownText:SetFont(icon.cooldownTextFont, scaledFontSize, icon.cooldownTextFlags)
         end
         
-        -- Calculate effective size using TARGET scale for stable layout
-        local effectiveSize = iconSize * targetScale
+        -- DYNAMIC POSITION: Center of this icon is at runningPos + half its scaled size
+        local dynamicCenterPos = runningPos + (scaledSize / 2)
         
-        -- Reposition the icon based on orientation
-        local posCenter = currentPos + (effectiveSize / 2)
-        local iconHalfSize = scaledSize / 2
-        PositionIconForOrientation(icon, dock, arcOffset, posCenter, iconHalfSize, true)
+        -- Position icon at its DYNAMIC center (pushes neighbors apart)
+        PositionIconForOrientation(icon, dock, arcOffset, dynamicCenterPos)
         
-        -- Advance position for next icon (using TARGET scale for stable layout)
-        currentPos = currentPos + effectiveSize + spacing
+        -- Advance running position for next icon
+        runningPos = runningPos + scaledSize + spacing
     end
     
     if not needsUpdate and not isMouseOver then
@@ -452,13 +482,24 @@ local function StartAnimation()
     animationFrame:SetScript("OnUpdate", OnAnimationUpdate)
 end
 
--- Reset all icon scales and alphas when mouse leaves
-local function ResetIconTargets()
+-- Reset icon alphas (but NOT scales - keep magnification during fade out)
+local function ResetIconAlphas()
+    for _, icon in ipairs(visibleIcons) do
+        icon.targetAlpha = 1
+    end
+    targetMagOffset = 0
+    -- Note: We intentionally do NOT reset targetScale or lastMagnifiedIndex here
+    -- so magnification persists during fade out
+end
+
+-- Full reset (only called when dock is fully hidden or on refresh)
+local function FullResetIconTargets()
     for _, icon in ipairs(visibleIcons) do
         icon.targetScale = 1
         icon.targetAlpha = 1
     end
     targetMagOffset = 0
+    lastMagnifiedIndex = nil
 end
 
 -- Fade dock when mouse enters/leaves
@@ -470,14 +511,14 @@ end
 local function FadeDockOut()
     if not InCombatLockdown() then
         targetDockAlpha = RESTING_ALPHA
-        ResetIconTargets() -- Reset icons to full scale/alpha before fading out
+        -- Don't reset scales - keep magnification during fade out
         StartAnimation()
     end
 end
 
--- ============================================================================
--- ICON CREATION
--- ============================================================================
+
+
+-- [ ICON CREATION ] -----------------------------------------------------------
 
 local function CreatePortalIcon()
     local icon = CreateFrame("Button", nil, dock, "SecureActionButtonTemplate")
@@ -606,61 +647,43 @@ local function CreatePortalIcon()
         isMouseOver = true
         FadeDockIn()
         
-        if self.portalData and LibQTip then
+        if self.portalData then
             local data = self.portalData
-            
-            -- Release any existing tooltip
-            if tooltip then
-                LibQTip:Release(tooltip)
-            end
-            
-            -- Create new tooltip with 2 columns
-            tooltip = LibQTip:Acquire("OrbitPortalDockTooltip", 2, "LEFT", "RIGHT")
-            tooltip:SetAutoHideDelay(0.1, self)
             
             -- Position tooltip on opposite side of screen from dock
             local screenWidth = GetScreenWidth()
             local dockCenterX = dock:GetCenter()
-            tooltip:ClearAllPoints()
             if dockCenterX < screenWidth / 2 then
-                -- Dock is on left side, show tooltip on right
-                tooltip:SetPoint("LEFT", self, "RIGHT", 10, 0)
+                GameTooltip:SetOwner(self, "ANCHOR_RIGHT", 10, 0)
             else
-                -- Dock is on right side, show tooltip on left
-                tooltip:SetPoint("RIGHT", self, "LEFT", -10, 0)
+                GameTooltip:SetOwner(self, "ANCHOR_LEFT", -10, 0)
             end
+            
             -- Line 1: Short name + instance name (yellow header)
             local shortName = data.short or ""
-            local instanceName = data.instanceName  -- Dungeon/instance name from PortalData
-            local portalName = data.name or "Unknown"  -- Actual spell name
-            local line
+            local instanceName = data.instanceName
+            local portalName = data.name or "Unknown"
             
-            line = tooltip:AddLine()
             if shortName ~= "" and instanceName then
-                -- Show "SHORT - Instance Name" for dungeons/raids
-                tooltip:SetCell(line, 1, "|cffFFD100" .. shortName .. " - " .. instanceName .. "|r", nil, "LEFT", 2)
+                GameTooltip:AddLine(shortName .. " - " .. instanceName, 1, 0.82, 0)
             elseif instanceName then
-                -- Just instance name if no short name
-                tooltip:SetCell(line, 1, "|cffFFD100" .. instanceName .. "|r", nil, "LEFT", 2)
+                GameTooltip:AddLine(instanceName, 1, 0.82, 0)
             else
-                -- Fallback for non-dungeon portals (hearthstones, etc.)
-                tooltip:SetCell(line, 1, "|cffFFD100" .. portalName .. "|r", nil, "LEFT", 2)
+                GameTooltip:AddLine(portalName, 1, 0.82, 0)
             end
             
             -- Line 2: Portal spell name (white) - only if different from instance name
             if instanceName and instanceName ~= portalName then
-                line = tooltip:AddLine()
-                tooltip:SetCell(line, 1, "|cffFFFFFF" .. portalName .. "|r", nil, "LEFT", 2)
+                GameTooltip:AddLine(portalName, 1, 1, 1)
             end
             
             -- Line 3: Category (gray)
             local categoryName = PD.CategoryNames[data.category] or data.category or "Portal"
-            line = tooltip:AddLine()
-            tooltip:SetCell(line, 1, "|cff888888" .. categoryName .. "|r", nil, "LEFT", 2)
+            GameTooltip:AddLine(categoryName, 0.5, 0.5, 0.5)
             
             -- For seasonal dungeons with M+ data, show rating and best run
             if data.challengeModeID and (data.category == "SEASONAL_DUNGEON") then
-                tooltip:AddSeparator()
+                GameTooltip:AddLine(" ")  -- Separator
                 
                 -- Get M+ best run info (with pcall for secret value protection)
                 local intimeInfo, overtimeInfo, bestInfo
@@ -673,7 +696,6 @@ local function CreatePortalIcon()
                     intimeInfo = result1
                     overtimeInfo = result2
                     bestInfo = intimeInfo or overtimeInfo
-                    -- Cache the result
                     mythicPlusCache[mapID] = mythicPlusCache[mapID] or {}
                     mythicPlusCache[mapID].bestInfo = bestInfo
                 elseif mythicPlusCache[mapID] then
@@ -684,7 +706,6 @@ local function CreatePortalIcon()
                 local ok2, affixScores, score = pcall(C_MythicPlus.GetSeasonBestAffixScoreInfoForMap, mapID)
                 if ok2 then
                     dungeonScore = score or 0
-                    -- Cache the result
                     mythicPlusCache[mapID] = mythicPlusCache[mapID] or {}
                     mythicPlusCache[mapID].dungeonScore = dungeonScore
                 elseif mythicPlusCache[mapID] and mythicPlusCache[mapID].dungeonScore then
@@ -692,33 +713,25 @@ local function CreatePortalIcon()
                 end
                 
                 -- Color rating based on score (approximate M+ colors)
-                local ratingColor
+                local r, g, b
                 if dungeonScore >= 300 then
-                    ratingColor = "ffFF8000" -- Orange
+                    r, g, b = 1, 0.5, 0  -- Orange
                 elseif dungeonScore >= 250 then
-                    ratingColor = "ffA335EE" -- Purple
+                    r, g, b = 0.64, 0.21, 0.93  -- Purple
                 elseif dungeonScore >= 200 then
-                    ratingColor = "ff0070DD" -- Blue
+                    r, g, b = 0, 0.44, 0.87  -- Blue
                 elseif dungeonScore >= 100 then
-                    ratingColor = "ff1EFF00" -- Green
+                    r, g, b = 0.12, 1, 0  -- Green
                 else
-                    ratingColor = "ffFFFFFF" -- White
+                    r, g, b = 1, 1, 1  -- White
                 end
                 
-                -- Show Rating
-                line = tooltip:AddLine()
-                tooltip:SetCell(line, 1, "Rating: |c" .. ratingColor .. dungeonScore .. "|r", nil, "LEFT", 2)
+                -- Show Rating (white label, colored value)
+                GameTooltip:AddDoubleLine("Rating:", dungeonScore, 1, 1, 1, r, g, b)
                 
                 if bestInfo then
-                    -- Show Best Run header
-                    line = tooltip:AddLine()
-                    tooltip:SetCell(line, 1, " ")  -- Empty line for spacing
-                    
-                    line = tooltip:AddLine()
-                    tooltip:SetCell(line, 1, "|cff00FF00Best Run|r", nil, "LEFT", 2)
-                    
-                    -- Show level and time on same line
-                    line = tooltip:AddLine()
+                    GameTooltip:AddLine(" ")  -- Spacing
+                    GameTooltip:AddLine("Best Run", 0, 1, 0)
                     
                     -- Safely access bestInfo fields (may be secret)
                     local level, durationSec
@@ -728,63 +741,42 @@ local function CreatePortalIcon()
                     end)
                     
                     if ok3 and level and durationSec then
-                        tooltip:SetCell(line, 1, "Level " .. level)
-                        -- Format time
                         local mins = math.floor(durationSec / 60)
                         local secs = durationSec % 60
                         local timeText = string.format("%d:%02d", mins, secs)
-                        tooltip:SetCell(line, 2, timeText)
+                        GameTooltip:AddDoubleLine("Level " .. level, timeText, 1, 1, 1, 1, 1, 1)
                         
-                        -- Cache this too
                         mythicPlusCache[mapID].level = level
                         mythicPlusCache[mapID].durationSec = durationSec
                     elseif mythicPlusCache[mapID] and mythicPlusCache[mapID].level then
-                        -- Use cached data
-                        tooltip:SetCell(line, 1, "Level " .. mythicPlusCache[mapID].level)
                         local mins = math.floor(mythicPlusCache[mapID].durationSec / 60)
                         local secs = mythicPlusCache[mapID].durationSec % 60
-                        tooltip:SetCell(line, 2, string.format("%d:%02d", mins, secs))
+                        GameTooltip:AddDoubleLine("Level " .. mythicPlusCache[mapID].level, string.format("%d:%02d", mins, secs), 1, 1, 1, 1, 1, 1)
                     end
                 else
-                    -- No run data
-                    line = tooltip:AddLine()
-                    tooltip:SetCell(line, 1, "|cff888888No best run yet|r", nil, "LEFT", 2)
+                    GameTooltip:AddLine("No best run yet", 0.5, 0.5, 0.5)
                 end
             end
             
             -- Add cooldown info if available
             if data.cooldown and data.cooldown > 0 then
-                tooltip:AddSeparator()
+                GameTooltip:AddLine(" ")  -- Separator
                 local hours = math.floor(data.cooldown / 3600)
                 local mins = math.floor((data.cooldown % 3600) / 60)
                 local cooldownText
                 if hours > 0 then
-                    cooldownText = string.format("%dh %dm", hours, mins)
+                    cooldownText = string.format("%dh %dm cooldown", hours, mins)
                 else
-                    cooldownText = string.format("%dm", mins)
+                    cooldownText = string.format("%dm cooldown", mins)
                 end
-                line = tooltip:AddLine()
-                tooltip:SetCell(line, 1, "|cffFF6666" .. cooldownText .. " cooldown|r", nil, "LEFT", 2)
+                GameTooltip:AddLine(cooldownText, 1, 0.4, 0.4)
             end
             
-            tooltip:Show()
-        else
-            -- Fallback to GameTooltip if LibQTip not available
-            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            if self.portalData then
-                local data = self.portalData
-                if data.type == "spell" then
-                    GameTooltip:SetSpellByID(data.spellID)
-                elseif data.type == "toy" or data.type == "item" then
-                    GameTooltip:SetToyByItemID(data.itemID)
-                end
-            end
             GameTooltip:Show()
         end
     end)
     
     icon:SetScript("OnLeave", function(self)
-        -- LibQTip auto-hides via SetAutoHideDelay, but we also hide GameTooltip as fallback
         GameTooltip:Hide()
         
         -- Check if mouse left the dock entirely (not just moved to another icon)
@@ -800,7 +792,7 @@ local function CreatePortalIcon()
             else
                 scrollOffset = 0
             end
-            ResetIconTargets()
+            FullResetIconTargets()
             FadeDockOut()
         end
     end)
@@ -810,9 +802,7 @@ end
 
 
 
--- ============================================================================
--- ICON CONFIGURATION
--- ============================================================================
+-- [ ICON CONFIGURATION ] ------------------------------------------------------
 
 local function ConfigureIcon(icon, data, index)
     icon.portalData = data
@@ -913,9 +903,7 @@ local function ConfigureIcon(icon, data, index)
     icon:Show()
 end
 
--- ============================================================================
--- DOCK LAYOUT - Arc/Curve with Infinite Scroll
--- ============================================================================
+-- [ DOCK LAYOUT ] -------------------------------------------------------------
 
 -- Assign to forward-declared variable so OnEnter can call it
 RefreshDock = function()
@@ -989,8 +977,13 @@ RefreshDock = function()
             -- Calculate arc offset using helper
             local arcOffset = CalculateArcOffset(displayIndex, maxVisible, iconSize, arcDepth)
             
-            -- Position icon using helper
-            PositionIconForOrientation(icon, dock, arcOffset, currentPos, 0, false)
+            -- Calculate and store the STABLE center position for this icon
+            -- This never changes during magnification - icons scale in place
+            local centerPos = currentPos + (iconSize / 2)
+            icon.stableCenterPos = centerPos
+            
+            -- Position icon at its center
+            PositionIconForOrientation(icon, dock, arcOffset, centerPos)
             
             currentPos = currentPos + iconSize + spacing
             
@@ -1000,8 +993,17 @@ RefreshDock = function()
     
     -- Update dock size based on orientation
     local arcDepth = Plugin:GetSetting(1, "ArcDepth") or DEFAULT_ARC_DEPTH
-    local dockLength = math.max(currentPos - spacing, iconSize)
-    local dockThickness = iconSize + arcDepth + 10
+    local hoverScale = Plugin:GetSetting(1, "HoverScale") or 1.5
+    
+    -- Calculate dock dimensions
+    -- Length: sum of all icon sizes + spacing (use magnified size for worst case)
+    local maxIconSize = iconSize * hoverScale
+    local dockLength = math.max(currentPos - spacing + (maxIconSize - iconSize), iconSize)
+    
+    -- Thickness: must encompass arc offset + magnification bonus + icon size
+    -- Arc offset pushes icons out, magnification bonus pushes them further
+    local maxMagBonus = (hoverScale - 1) * iconSize * 0.8  -- Same formula as in animation
+    local dockThickness = maxIconSize + arcDepth + maxMagBonus + 10
     
     if IsHorizontal() then
         dock:SetWidth(dockLength)
@@ -1014,9 +1016,7 @@ RefreshDock = function()
     dock:Show()
 end
 
--- ============================================================================
--- SCROLL HANDLING - Infinite Scroll
--- ============================================================================
+-- [ SCROLL HANDLING ] ---------------------------------------------------------
 
 local function OnMouseWheel(self, delta)
     if not CanInteract() then return end
@@ -1075,9 +1075,7 @@ local function OnMouseWheel(self, delta)
     RefreshDock()
 end
 
--- ============================================================================
--- DOCK CREATION
--- ============================================================================
+-- [ DOCK CREATION ] -----------------------------------------------------------
 
 local function CreateDock()
     dock = CreateFrame("Frame", "OrbitPortalDock", UIParent)
@@ -1116,30 +1114,14 @@ local function CreateDock()
     -- Start in resting alpha state
     dock:SetAlpha(RESTING_ALPHA)
     
-    -- Edit mode orientation tracking: update orientation in real-time while dragging
-    local lastOrientation = currentOrientation
-    dock:HookScript("OnUpdate", function(self)
-        -- Only track during edit mode
-        if not EditModeManagerFrame or not EditModeManagerFrame:IsShown() then
-            return
-        end
-        
-        -- Check if orientation has changed
-        local newOrientation = DetectOrientation()
-        if newOrientation ~= lastOrientation then
-            lastOrientation = newOrientation
-            currentOrientation = newOrientation
-            -- Refresh layout with new orientation (safe because not in combat during edit mode)
-            RefreshDock()
-        end
-    end)
+    -- Enable engine-level auto-orientation during edit mode drag
+    -- Orientation callback is registered in OnLoad after dock is attached to Orbit
+    dock.orbitAutoOrient = true
     
     return dock
 end
 
--- ============================================================================
--- LIFECYCLE
--- ============================================================================
+-- [ LIFECYCLE ] -------------------------------------------------------
 
 function Plugin:OnLoad()
     -- Create the dock frame
@@ -1160,6 +1142,34 @@ function Plugin:OnLoad()
     -- Attach to Orbit's Edit Mode selection system (enables highlight + settings panel)
     if OrbitEngine and OrbitEngine.Frame then
         OrbitEngine.Frame:AttachSettingsListener(dock, self, 1)
+        
+        -- Register orientation change callback for auto-rotation during edit mode drag
+        -- Compensates for size changes to keep dock anchored to cursor during drag
+        OrbitEngine.Frame:RegisterOrientationCallback(dock, function(orientation)
+            if currentOrientation == orientation then return end
+            
+            -- Save cursor offset from dock center before layout change
+            local cursorX, cursorY = GetCursorPosition()
+            local scale = dock:GetEffectiveScale()
+            cursorX, cursorY = cursorX / scale, cursorY / scale
+            local dockCenterX = dock:GetLeft() + (dock:GetWidth() / 2)
+            local dockCenterY = dock:GetBottom() + (dock:GetHeight() / 2)
+            local offsetX = cursorX - dockCenterX
+            local offsetY = cursorY - dockCenterY
+            
+            currentOrientation = orientation
+            RefreshDock()
+            
+            -- Reposition dock so cursor maintains same offset from center
+            if dock.orbitIsDragging then
+                local newCenterX = cursorX - offsetX
+                local newCenterY = cursorY - offsetY
+                local newLeft = newCenterX - (dock:GetWidth() / 2)
+                local newBottom = newCenterY - (dock:GetHeight() / 2)
+                dock:ClearAllPoints()
+                dock:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", newLeft, newBottom)
+            end
+        end)
         
         -- If Edit Mode is already active (plugin loaded mid-session), show selection
         if EditModeManagerFrame and EditModeManagerFrame:IsShown() then
@@ -1265,19 +1275,18 @@ function Plugin:OnUnload()
     end
 end
 
--- ============================================================================
--- SETTINGS UI
--- ============================================================================
+
+-- [ SETTINGS UI ] -----------------------------------------------------------
 
 function Plugin:AddSettings(dialog, systemFrame)
     local schema = {
         controls = {
-            { type = "checkbox", key = "HideLongCooldowns", label = "Hide Long Cooldowns", default = false },
-            { type = "slider", key = "IconSize", label = "Icon Size", min = 24, max = 40, step = 2, default = 36 },
-            { type = "slider", key = "Spacing", label = "Icon Padding", min = 0, max = 20, step = 1, default = 4 },
-            { type = "slider", key = "MaxVisible", label = "Max Visible Icons", min = 3, max = 21, step = 2, default = 11 },
-            { type = "slider", key = "ArcDepth", label = "Arc Depth", min = 0, max = 30, step = 1, default = 5 },
-            { type = "slider", key = "HoverScale", label = "Magnification Scale", min = 1.0, max = 2.0, step = 0.05, default = 1.33 },
+            { type = "checkbox", key = "HideLongCooldowns", label = "Hide Long Cooldowns", default = true },
+            { type = "slider", key = "IconSize", label = "Icon Size", min = 24, max = 40, step = 2, default = 34 },
+            { type = "slider", key = "Spacing", label = "Icon Padding", min = 0, max = 20, step = 1, default = 3 },
+            { type = "slider", key = "MaxVisible", label = "Max Visible Icons", min = 3, max = 21, step = 2, default = 9 },
+            { type = "slider", key = "ArcDepth", label = "Arc Depth", min = 0, max = 30, step = 1, default = 10 },
+            { type = "slider", key = "HoverScale", label = "Magnification Scale", min = 1.0, max = 2.0, step = 0.05, default = 1.2 },
         },
     }
     
@@ -1287,9 +1296,7 @@ end
 -- Export for debugging
 addon.PortalDock = Plugin
 
--- ============================================================================
--- COMMAND HANDLER (Called via /orbit portal <cmd>)
--- ============================================================================
+-- [ COMMAND HANDLER ] -------------------------------------------------------
 
 function Plugin:HandleCommand(cmd)
     cmd = cmd or ""

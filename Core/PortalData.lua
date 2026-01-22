@@ -6,9 +6,7 @@ addon.PortalData = {}
 
 local PD = addon.PortalData
 
--- ============================================================================
--- CATEGORY CONFIGURATION
--- ============================================================================
+-- [ CATEGORY CONFIGURATION ]---------------------------------------------------
 
 -- Category order for dock display (priority order)
 PD.CategoryOrder = {
@@ -57,9 +55,7 @@ PD.CategoryNames = {
     TOY = "Portal Toys",
 }
 
--- ============================================================================
--- CURRENT SEASON CONFIGURATION (Update each season!)
--- ============================================================================
+-- [ CURRENT SEASON CONFIGURATION (Update each season!) ]---------------------
 
 -- The War Within Season 3 dungeons (M+ rotation)
 PD.CURRENT_SEASON_DUNGEONS = {
@@ -77,9 +73,7 @@ PD.CURRENT_SEASON_RAIDS = {
     1239155,  -- Manaforge Omega
 }
 
--- ============================================================================
--- DUNGEON PORTALS BY EXPANSION
--- ============================================================================
+-- [ DUNGEON PORTALS BY EXPANSION ]-------------------------------------------
 
 -- The War Within
 PD.TWW_DUNGEON = {
@@ -196,11 +190,7 @@ PD.CLASSIC_DUNGEON = {
     { spellID = 131229, name = "Scarlet Monastery" },
 }
 
--- ============================================================================
--- HEARTHSTONES
--- All hearthstones that share the main hearthstone cooldown are grouped
--- The scanner will pick ONE randomly from available ones
--- ============================================================================
+-- [ HEARTHSTONES ]-----------------------------------------------------------
 
 -- Hearthstones that share the main cooldown (will be deduplicated)
 PD.HEARTHSTONE_SHARED = {
@@ -245,9 +235,7 @@ PD.HEARTHSTONE_UNIQUE = {
     { itemID = 141605, name = "Flight Master's Whistle", type = "item" },
 }
 
--- ============================================================================
--- CLASS PORTALS
--- ============================================================================
+-- [ CLASS PORTALS ]-----------------------------------------------------------
 PD.CLASS = {
     -- Death Knight
     { spellID = 50977, name = "Death Gate", class = "DEATHKNIGHT" },
@@ -264,9 +252,7 @@ PD.CLASS = {
     { spellID = 556, name = "Astral Recall", class = "SHAMAN" },
 }
 
--- ============================================================================
--- MAGE TELEPORTS (Personal)
--- ============================================================================
+-- [ MAGE TELEPORTS (Personal) ]-----------------------------------------------
 PD.MAGE_TELEPORT = {
     -- Alliance
     { spellID = 3561, name = "Teleport: Stormwind", faction = "Alliance" },
@@ -301,9 +287,7 @@ PD.MAGE_TELEPORT = {
     { spellID = 120145, name = "Ancient Teleport: Dalaran" },
 }
 
--- ============================================================================
--- MAGE PORTALS (Group)
--- ============================================================================
+-- [ MAGE PORTALS (Group) ]-----------------------------------------------------
 PD.MAGE_PORTAL = {
     -- Alliance
     { spellID = 10059, name = "Portal: Stormwind", faction = "Alliance" },
@@ -338,9 +322,7 @@ PD.MAGE_PORTAL = {
     { spellID = 120146, name = "Ancient Portal: Dalaran" },
 }
 
--- ============================================================================
--- ENGINEERING PORTALS
--- ============================================================================
+-- [ ENGINEERING PORTALS ]------------------------------------------------------
 PD.ENGINEER = {
     -- Classic/TBC (Items)
     { itemID = 18986, name = "Ultrasafe Transporter: Gadgetzan", type = "item", reqSkill = 260 },
@@ -374,9 +356,7 @@ PD.ENGINEER = {
     { itemID = 221966, name = "Wormhole Generator: Khaz Algar", type = "toy", reqSkill = 1 },
 }
 
--- ============================================================================
--- PORTAL TOYS (Miscellaneous)
--- ============================================================================
+-- [ PORTAL TOYS (Miscellaneous) ]---------------------------------------------
 PD.TOY = {
     { itemID = 64457, name = "The Last Relic of Argus", destination = "Random" },
     { itemID = 95567, name = "Kirin Tor Beacon", destination = "Isle of Thunder", faction = "Alliance" },
@@ -418,9 +398,7 @@ PD.TOY = {
     { itemID = 52251, name = "Jaina's Locket", destination = "Dalaran (Northrend)", type = "item" },
 }
 
--- ============================================================================
--- HELPER: Check if a spell is in current season
--- ============================================================================
+-- [ HELPER: Check if a spell is in current season ]---------------------------
 function PD:IsCurrentSeasonDungeon(spellID)
     for _, id in ipairs(self.CURRENT_SEASON_DUNGEONS) do
         if id == spellID then return true end
