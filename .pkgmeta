@@ -1,4 +1,4 @@
-package-as: Orbit_Teleport
+package-as: Orbit_Portal
 
 ignore:
   - .git

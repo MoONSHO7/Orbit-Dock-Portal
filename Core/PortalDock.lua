@@ -1,14 +1,14 @@
--- TeleportDock.lua
--- Main plugin file: macOS Dock-style teleport UI with magnification effect
+-- PortalDock.lua
+-- Main plugin file: macOS Dock-style portal UI with magnification effect
 
 local _, addon = ...
-local Scanner = addon.TeleportScanner
-local TD = addon.TeleportData
+local Scanner = addon.PortalScanner
+local PD = addon.PortalData
 
--- Get Orbit reference
-local Orbit = _G.Orbit or LibStub and LibStub("Orbit", true)
+-- Get Orbit reference (registered globally by Init.lua before dependencies load)
+---@type Orbit
+local Orbit = Orbit
 if not Orbit then
-    -- Orbit not loaded, cannot register plugin
     return
 end
 
@@ -19,22 +19,41 @@ local OrbitEngine = Orbit.Engine
 local LibQTip = LibStub and LibStub("LibQTip-1.0", true)
 local tooltip = nil  -- Reusable tooltip reference
 
+-- Cache frequently used globals (performance optimization)
+local math_abs = math.abs
+local math_min = math.min
+local math_max = math.max
+local math_floor = math.floor
+local math_ceil = math.ceil
+local math_sin = math.sin
+local math_pi = math.pi
+local ipairs = ipairs
+local pairs = pairs
+local wipe = wipe
+local GetTime = GetTime
+local InCombatLockdown = InCombatLockdown
+local GetCursorPosition = GetCursorPosition
+
 -- ============================================================================
 -- PLUGIN REGISTRATION
 -- ============================================================================
 
-local SYSTEM_ID = "Orbit_Teleport"
+local SYSTEM_ID = "Orbit_Portal"
 
-local Plugin = Orbit:RegisterPlugin("Teleport Dock", SYSTEM_ID, {
+local Plugin = Orbit:RegisterPlugin("Portal Dock", SYSTEM_ID, {
     defaults = {
+        -- Appearance
+        IconSize = 30,
+        Spacing = 5,
+        MaxVisible = 9,
+        ArcDepth = 10,
+        -- Magnification
         Magnification = true,
-        MaxVisible = 11,
-        IconSize = 36,
-        HoverScale = 1.33,
-        Spacing = 4,
-        ShowCooldowns = true,
+        HoverScale = 1.5,
+        -- Filtering
+        HideLongCooldowns = true,
     },
-})
+}, Orbit.Constants and Orbit.Constants.PluginGroups and Orbit.Constants.PluginGroups.Misc)
 
 -- ============================================================================
 -- STATE
@@ -43,18 +62,19 @@ local Plugin = Orbit:RegisterPlugin("Teleport Dock", SYSTEM_ID, {
 local dock = nil
 local iconPool = nil
 local visibleIcons = {}
-local teleportList = {}
+local portalList = {}
 local isEditModeActive = false
 local scrollOffset = 0
 local isMouseOver = false
 local RefreshDock  -- Forward declaration for use in OnEnter
 local mythicPlusCache = {}  -- Cache for M+ ratings to survive encounter lockouts
+local pendingRefresh = false  -- Queue refresh for when combat ends
 
 -- ============================================================================
 -- CONSTANTS
 -- ============================================================================
 
-local ANIMATION_SPEED = 12 -- Higher = faster animation
+local ANIMATION_SPEED = 6 -- Lower = smoother/slower animation (was 12)
 local RESTING_ALPHA = 0.0 -- Dock alpha when not hovered
 local DEFAULT_ARC_DEPTH = 5 -- How far the curve indents (pixels) - subtle curve
 
@@ -104,21 +124,21 @@ local function NormalizeMaxVisible(maxVisible, totalItems)
     if maxVisible % 2 == 0 then
         maxVisible = maxVisible - 1
     end
-    return math.max(3, math.min(maxVisible, totalItems or maxVisible))
+    return math_max(3, math_min(maxVisible, totalItems or maxVisible))
 end
 
 -- DRY: Calculate arc offset for a given position
 local function CalculateArcOffset(displayIndex, maxVisible, iconSize, arcDepth)
     local normalizedPos = displayIndex / (maxVisible - 1)
-    local curveValue = math.sin(normalizedPos * math.pi)
+    local curveValue = math_sin(normalizedPos * math_pi)
     local edgeOffset = -iconSize * 0.8
     return edgeOffset + (arcDepth - edgeOffset) * curveValue
 end
 
 -- DRY: Format duration in seconds to readable string
 local function FormatDuration(seconds)
-    local hours = math.floor(seconds / 3600)
-    local mins = math.floor((seconds % 3600) / 60)
+    local hours = math_floor(seconds / 3600)
+    local mins = math_floor((seconds % 3600) / 60)
     local secs = seconds % 60
     if hours > 0 then
         return string.format("%dh %dm", hours, mins)
@@ -205,6 +225,15 @@ local function UpdateCombatState()
     end
 end
 
+-- Request a dock refresh - queues for later if in combat
+local function RequestRefresh()
+    if CanInteract() then
+        RefreshDock()
+    else
+        pendingRefresh = true
+    end
+end
+
 -- ============================================================================
 -- DOCK ANIMATION - With Icon Alpha Fading
 -- ============================================================================
@@ -231,9 +260,10 @@ local function CalculateIconTargets()
         return
     end
     
-    local iconSize = Plugin:GetSetting(1, "IconSize") or 36
-    local spacing = Plugin:GetSetting(1, "Spacing") or 4
-    local hoverScale = Plugin:GetSetting(1, "HoverScale") or 1.33
+    -- Cache settings once
+    local iconSize = Plugin:GetSetting(1, "IconSize") or 30
+    local spacing = Plugin:GetSetting(1, "Spacing") or 5
+    local hoverScale = Plugin:GetSetting(1, "HoverScale") or 1.5
     
     -- Get cursor position relative to dock (orientation-aware)
     local cursorX, cursorY = GetCursorPosition()
@@ -241,38 +271,47 @@ local function CalculateIconTargets()
     cursorX = cursorX / uiScale
     cursorY = cursorY / uiScale
     
-    -- Get reference position based on orientation
-    local dockRef, cursorPos
-    if IsHorizontal() then
-        dockRef = dock:GetLeft()
-        cursorPos = cursorX
-    else
-        dockRef = dock:GetTop()
-        cursorPos = cursorY
-    end
+    -- Pre-compute orientation and dock reference
+    local isHoriz = IsHorizontal()
+    local dockRef = isHoriz and dock:GetLeft() or dock:GetTop()
+    local cursorPos = isHoriz and cursorX or cursorY
     
     if not dockRef then return end
     
-    local closestDistance = math.huge
+    local closestDistance = 1e9  -- Use large number instead of math.huge
     local closestIndex = 0
+    local totalVisible = #visibleIcons
     
-    -- First pass: find the closest icon
+    -- Pre-compute edge boundaries (icons that shouldn't magnify)
+    local centerCount = math_ceil(totalVisible / 3)
+    local centerStart = math_floor((totalVisible - centerCount) / 2) + 1
+    local centerEnd = centerStart + centerCount - 1
+    
+    -- Find the icon whose VISUAL BOUNDS contain the cursor
     for i, icon in ipairs(visibleIcons) do
-        -- Calculate STABLE center position based on base size and index
-        local stableCenter
-        if IsHorizontal() then
-            local baseSlotLeft = dockRef + ((i - 1) * (iconSize + spacing))
-            stableCenter = baseSlotLeft + (iconSize / 2)
+        local currentScale = icon.currentScale or 1
+        local scaledHalfSize = (iconSize * currentScale) * 0.5
+        
+        -- Calculate the visual center position based on base slot
+        local visualCenter
+        if isHoriz then
+            visualCenter = dockRef + ((i - 1) * (iconSize + spacing)) + (iconSize * 0.5)
         else
-            local baseSlotTop = dockRef - ((i - 1) * (iconSize + spacing))
-            stableCenter = baseSlotTop - (iconSize / 2)
+            visualCenter = dockRef - ((i - 1) * (iconSize + spacing)) - (iconSize * 0.5)
         end
         
-        local pixelDistance = math.abs(cursorPos - stableCenter)
+        -- Check if cursor is within the VISUAL bounds of this icon
+        local distFromCenter = math_abs(cursorPos - visualCenter)
+        local isWithinBounds = distFromCenter <= scaledHalfSize
         
-        -- Track closest icon
-        if pixelDistance < closestDistance then
-            closestDistance = pixelDistance
+        -- Prioritize icons that actually contain the cursor
+        if isWithinBounds then
+            if distFromCenter < closestDistance then
+                closestDistance = distFromCenter
+                closestIndex = i
+            end
+        elseif closestIndex == 0 and distFromCenter < closestDistance then
+            closestDistance = distFromCenter
             closestIndex = i
         end
         
@@ -281,36 +320,24 @@ local function CalculateIconTargets()
         icon.targetAlpha = 1
     end
     
-    -- Determine which icons are "edge" icons that shouldn't magnify
-    local totalVisible = #visibleIcons
-    local centerCount = math.ceil(totalVisible / 3)
-    local centerStart = math.floor((totalVisible - centerCount) / 2) + 1
-    local centerEnd = centerStart + centerCount - 1
-    local isEdgeIcon = function(index)
-        return index < centerStart or index > centerEnd
-    end
+    -- The center slot where hearthstone appears by default
+    local centerSlotIndex = math_floor(totalVisible / 2) + 1
     
-    -- Only magnify the closest icon (and not if it's an edge icon)
-    if closestIndex > 0 and closestDistance < iconSize and not isEdgeIcon(closestIndex) then
-        visibleIcons[closestIndex].targetScale = hoverScale
-    end
-    
-    -- Calculate the magnification offset to keep frame size constant
+    -- If cursor is over a specific icon (not edge), magnify it
+    -- Otherwise magnify the center (hearthstone) icon
     if closestIndex > 0 and closestDistance < iconSize then
-        local totalExtraSize = 0
-        for _, icon in ipairs(visibleIcons) do
-            local extraSize = (icon.targetScale - 1) * iconSize
-            totalExtraSize = totalExtraSize + extraSize
+        -- Check if not an edge icon (inline, no closure)
+        if closestIndex >= centerStart and closestIndex <= centerEnd then
+            visibleIcons[closestIndex].targetScale = hoverScale
         end
-        
-        -- Calculate where the hovered icon is relative to the center of visible icons
-        local centerIndex = #visibleIcons / 2
-        local offsetRatio = (closestIndex - centerIndex) / #visibleIcons
-        
-        targetMagOffset = totalExtraSize * offsetRatio
-    else
-        targetMagOffset = 0
+    elseif centerSlotIndex > 0 and centerSlotIndex <= totalVisible then
+        if centerSlotIndex >= centerStart and centerSlotIndex <= centerEnd then
+            visibleIcons[centerSlotIndex].targetScale = hoverScale
+        end
     end
+    
+    -- No magnification offset - icons scale in place without shifting
+    targetMagOffset = 0
 end
 
 -- Animation for dock alpha, icon scale/alpha, and fisheye layout
@@ -320,11 +347,11 @@ local function OnAnimationUpdate(self, elapsed)
         return
     end
     
-    local t = math.min(elapsed * ANIMATION_SPEED, 1)
+    local t = math_min(elapsed * ANIMATION_SPEED, 1)
     local needsUpdate = false
     
     -- Animate dock alpha
-    if math.abs(currentDockAlpha - targetDockAlpha) > 0.001 then
+    if math_abs(currentDockAlpha - targetDockAlpha) > 0.001 then
         currentDockAlpha = Lerp(currentDockAlpha, targetDockAlpha, t)
         dock:SetAlpha(currentDockAlpha)
         needsUpdate = true
@@ -336,19 +363,23 @@ local function OnAnimationUpdate(self, elapsed)
     end
     
     -- Animate magnification offset
-    if math.abs(magnificationOffset - targetMagOffset) > 0.1 then
+    if math_abs(magnificationOffset - targetMagOffset) > 0.1 then
         magnificationOffset = Lerp(magnificationOffset, targetMagOffset, t)
         needsUpdate = true
     else
         magnificationOffset = targetMagOffset
     end
     
-    -- Get layout settings
-    local iconSize = Plugin:GetSetting(1, "IconSize") or 36
-    local spacing = Plugin:GetSetting(1, "Spacing") or 4
+    -- Cache settings ONCE per frame (not per-icon)
+    local iconSize = Plugin:GetSetting(1, "IconSize") or 30
+    local spacing = Plugin:GetSetting(1, "Spacing") or 5
+    local maxVisible = Plugin:GetSetting(1, "MaxVisible") or 9
+    local arcDepth = Plugin:GetSetting(1, "ArcDepth") or DEFAULT_ARC_DEPTH
+    maxVisible = NormalizeMaxVisible(maxVisible, #visibleIcons)
     
     -- Animate each icon's scale and alpha, then reposition
-    local currentPos = -magnificationOffset  -- Start position shifted by magnification offset
+    -- Icons scale in-place at their base positions (no magnification offset shifting)
+    local currentPos = 0
     
     for _, icon in ipairs(visibleIcons) do
         local targetScale = icon.targetScale or 1
@@ -357,7 +388,7 @@ local function OnAnimationUpdate(self, elapsed)
         local currentAlpha = icon.currentAlpha or 1
         
         -- Animate scale
-        if math.abs(currentScale - targetScale) > 0.001 then
+        if math_abs(currentScale - targetScale) > 0.001 then
             currentScale = Lerp(currentScale, targetScale, t)
             icon.currentScale = currentScale
             needsUpdate = true
@@ -366,7 +397,7 @@ local function OnAnimationUpdate(self, elapsed)
         end
         
         -- Animate alpha
-        if math.abs(currentAlpha - targetAlpha) > 0.001 then
+        if math_abs(currentAlpha - targetAlpha) > 0.001 then
             currentAlpha = Lerp(currentAlpha, targetAlpha, t)
             icon.currentAlpha = currentAlpha
             needsUpdate = true
@@ -377,10 +408,7 @@ local function OnAnimationUpdate(self, elapsed)
         -- Apply alpha
         icon:SetAlpha(icon.currentAlpha)
         
-        -- Calculate arc offset using helper
-        local maxVisible = Plugin:GetSetting(1, "MaxVisible") or 11
-        maxVisible = NormalizeMaxVisible(maxVisible, #visibleIcons)
-        local arcDepth = Plugin:GetSetting(1, "ArcDepth") or DEFAULT_ARC_DEPTH
+        -- Calculate arc offset using cached values
         local arcOffset = CalculateArcOffset(icon.iconIndex, maxVisible, iconSize, arcDepth)
         
         -- Apply scale by RESIZING the icon (not SetScale, which causes coordinate issues)
@@ -391,6 +419,12 @@ local function OnAnimationUpdate(self, elapsed)
         if icon.border then
             local borderSize = scaledSize * 1.1
             icon.border:SetSize(borderSize, borderSize)
+        end
+        
+        -- Scale the cooldown text to match magnification
+        if icon.cooldownText and icon.cooldownTextFont and icon.cooldownTextBaseSize then
+            local scaledFontSize = icon.cooldownTextBaseSize * icon.currentScale
+            icon.cooldownText:SetFont(icon.cooldownTextFont, scaledFontSize, icon.cooldownTextFlags)
         end
         
         -- Calculate effective size using TARGET scale for stable layout
@@ -445,7 +479,7 @@ end
 -- ICON CREATION
 -- ============================================================================
 
-local function CreateTeleportIcon()
+local function CreatePortalIcon()
     local icon = CreateFrame("Button", nil, dock, "SecureActionButtonTemplate")
     icon:SetPropagateMouseClicks(true)
     icon:SetSize(36, 36)
@@ -465,7 +499,60 @@ local function CreateTeleportIcon()
     icon.cooldown = CreateFrame("Cooldown", nil, icon, "CooldownFrameTemplate")
     icon.cooldown:SetAllPoints()
     icon.cooldown:SetHideCountdownNumbers(false)
-    icon.cooldown:SetSwipeTexture("Interface\\CHARACTERFRAME\\TempPortraitAlphaMask")
+    icon.cooldown:SetDrawSwipe(true)     -- Dark overlay enabled
+    icon.cooldown:SetSwipeColor(0, 0, 0, 0.7)  -- Semi-transparent black
+    icon.cooldown:SetDrawEdge(true)      -- Yellow edge line
+    icon.cooldown:SetUseCircularEdge(true)   -- Circular edge for round icons
+    icon.cooldown:SetDrawBling(false)    -- No flash on complete
+    
+    -- Create a dedicated mask for the cooldown swipe (separate from icon mask)
+    -- This ensures the mask is always available and properly sized
+    icon.cooldownMask = icon.cooldown:CreateMaskTexture()
+    icon.cooldownMask:SetAllPoints(icon.cooldown)
+    icon.cooldownMask:SetTexture("Interface\\CHARACTERFRAME\\TempPortraitAlphaMask", "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+    
+    -- Function to apply mask to all cooldown textures
+    local function ApplyCircularMaskToCooldown(cooldown, mask)
+        -- Iterate through ALL regions of the cooldown frame
+        for _, region in pairs({cooldown:GetRegions()}) do
+            if region:IsObjectType("Texture") then
+                -- Check if mask is already applied to avoid duplicates
+                local alreadyMasked = false
+                -- Try to apply mask - it will silently fail if already masked
+                pcall(function()
+                    region:AddMaskTexture(mask)
+                end)
+            end
+        end
+    end
+    
+    -- Apply mask immediately (for any pre-existing regions)
+    ApplyCircularMaskToCooldown(icon.cooldown, icon.cooldownMask)
+    
+    -- Hook SetCooldown to ensure mask is applied when cooldown becomes active
+    -- This catches cases where textures are created/modified when the cooldown starts
+    local originalSetCooldown = icon.cooldown.SetCooldown
+    icon.cooldown.SetCooldown = function(self, start, duration, ...)
+        -- Call original function first
+        originalSetCooldown(self, start, duration, ...)
+        -- Re-apply mask after cooldown is set (textures may have been updated)
+        ApplyCircularMaskToCooldown(self, icon.cooldownMask)
+    end
+    
+    -- Make cooldown text smaller and store reference for magnification scaling
+    local cooldownText = icon.cooldown:GetRegions()
+    if cooldownText and cooldownText.SetFont then
+        local font, size, flags = cooldownText:GetFont()
+        if font and size then
+            local baseSize = size * 0.7
+            cooldownText:SetFont(font, baseSize, flags)
+            -- Store for magnification scaling
+            icon.cooldownText = cooldownText
+            icon.cooldownTextFont = font
+            icon.cooldownTextBaseSize = baseSize
+            icon.cooldownTextFlags = flags
+        end
+    end
     
     -- Circular border using talent tree style ring
     icon.border = icon:CreateTexture(nil, "OVERLAY")
@@ -475,7 +562,7 @@ local function CreateTeleportIcon()
     
     -- PreClick handler for random hearthstone - picks a new random one each click
     icon:SetScript("PreClick", function(self)
-        local data = self.teleportData
+        local data = self.portalData
         if data and data.type == "random_hearthstone" and data.availableHearthstones then
             local available = data.availableHearthstones
             if #available > 0 then
@@ -499,7 +586,7 @@ local function CreateTeleportIcon()
         -- On FIRST entry (when dock was not already hovered), calculate scroll position from cursor Y
         if not isMouseOver and dock then
             local maxVisible = Plugin:GetSetting(1, "MaxVisible") or 11
-            local totalItems = #teleportList
+            local totalItems = #portalList
             
             if totalItems > 0 then
                 maxVisible = NormalizeMaxVisible(maxVisible, totalItems)
@@ -519,8 +606,8 @@ local function CreateTeleportIcon()
         isMouseOver = true
         FadeDockIn()
         
-        if self.teleportData and LibQTip then
-            local data = self.teleportData
+        if self.portalData and LibQTip then
+            local data = self.portalData
             
             -- Release any existing tooltip
             if tooltip then
@@ -528,7 +615,7 @@ local function CreateTeleportIcon()
             end
             
             -- Create new tooltip with 2 columns
-            tooltip = LibQTip:Acquire("OrbitTeleportDockTooltip", 2, "LEFT", "RIGHT")
+            tooltip = LibQTip:Acquire("OrbitPortalDockTooltip", 2, "LEFT", "RIGHT")
             tooltip:SetAutoHideDelay(0.1, self)
             
             -- Position tooltip on opposite side of screen from dock
@@ -542,22 +629,32 @@ local function CreateTeleportIcon()
                 -- Dock is on right side, show tooltip on left
                 tooltip:SetPoint("RIGHT", self, "LEFT", -10, 0)
             end
-            -- Line 1: Short name (large, yellow)
+            -- Line 1: Short name + instance name (yellow header)
             local shortName = data.short or ""
-            local fullName = data.name or "Unknown"
+            local instanceName = data.instanceName  -- Dungeon/instance name from PortalData
+            local portalName = data.name or "Unknown"  -- Actual spell name
             local line
             
-            if shortName ~= "" then
-                line = tooltip:AddLine()
-                tooltip:SetCell(line, 1, "|cffFFD100" .. shortName .. "|r", nil, "LEFT", 2)
+            line = tooltip:AddLine()
+            if shortName ~= "" and instanceName then
+                -- Show "SHORT - Instance Name" for dungeons/raids
+                tooltip:SetCell(line, 1, "|cffFFD100" .. shortName .. " - " .. instanceName .. "|r", nil, "LEFT", 2)
+            elseif instanceName then
+                -- Just instance name if no short name
+                tooltip:SetCell(line, 1, "|cffFFD100" .. instanceName .. "|r", nil, "LEFT", 2)
+            else
+                -- Fallback for non-dungeon portals (hearthstones, etc.)
+                tooltip:SetCell(line, 1, "|cffFFD100" .. portalName .. "|r", nil, "LEFT", 2)
             end
             
-            -- Line 2: Full name (white)
-            line = tooltip:AddLine()
-            tooltip:SetCell(line, 1, "|cffFFFFFF" .. fullName .. "|r", nil, "LEFT", 2)
+            -- Line 2: Portal spell name (white) - only if different from instance name
+            if instanceName and instanceName ~= portalName then
+                line = tooltip:AddLine()
+                tooltip:SetCell(line, 1, "|cffFFFFFF" .. portalName .. "|r", nil, "LEFT", 2)
+            end
             
             -- Line 3: Category (gray)
-            local categoryName = TD.CategoryNames[data.category] or data.category or "Teleport"
+            local categoryName = PD.CategoryNames[data.category] or data.category or "Portal"
             line = tooltip:AddLine()
             tooltip:SetCell(line, 1, "|cff888888" .. categoryName .. "|r", nil, "LEFT", 2)
             
@@ -674,8 +771,8 @@ local function CreateTeleportIcon()
         else
             -- Fallback to GameTooltip if LibQTip not available
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            if self.teleportData then
-                local data = self.teleportData
+            if self.portalData then
+                local data = self.portalData
                 if data.type == "spell" then
                     GameTooltip:SetSpellByID(data.spellID)
                 elseif data.type == "toy" or data.type == "item" then
@@ -695,7 +792,7 @@ local function CreateTeleportIcon()
             isMouseOver = false
             -- Reset scrollOffset to center the first item (Hearthstone) on next hover
             local maxVisible = Plugin:GetSetting(1, "MaxVisible") or 11
-            local totalItems = #teleportList
+            local totalItems = #portalList
             if totalItems > 0 then
                 maxVisible = NormalizeMaxVisible(maxVisible, totalItems)
                 local centerSlot = math.floor(maxVisible / 2)
@@ -718,7 +815,7 @@ end
 -- ============================================================================
 
 local function ConfigureIcon(icon, data, index)
-    icon.teleportData = data
+    icon.portalData = data
     icon.iconIndex = index
     icon.type = data.type
     
@@ -778,17 +875,33 @@ local function ConfigureIcon(icon, data, index)
         end
     end
     
-    -- Check if cooldowns should be shown
-    local showCooldowns = Plugin:GetSetting(1, "ShowCooldowns")
-    if showCooldowns == nil then showCooldowns = true end
-    
-    if showCooldowns and data.cooldown and data.cooldown > 0 then
-        local startTime = GetTime() - (data.cooldown or 0)
-        icon.cooldown:SetCooldown(startTime, data.cooldown)
+    -- Only show cooldowns when active (ignore GCD - cooldowns under 2 seconds)
+    local GCD_THRESHOLD = 2  -- Ignore cooldowns shorter than this (GCD is ~1.5s)
+    if data.cooldown and data.cooldown > GCD_THRESHOLD then
+        -- Calculate correct startTime: current time minus elapsed time (duration - remaining)
+        local duration = data.cooldownDuration or data.cooldown
+        local remaining = data.cooldown
+        local elapsed = duration - remaining
+        local startTime = GetTime() - elapsed
+        
+        -- Re-apply display settings (may be reset by Clear() on previous use)
+        -- NOTE: Swipe is disabled to avoid square overlay - only circular edge shows
+        icon.cooldown:SetDrawSwipe(false)  -- No dark overlay (it's square, not circular)
+        icon.cooldown:SetDrawEdge(true)    -- Keep the circular yellow edge marker
+        icon.cooldown:SetUseCircularEdge(true)
+        icon.cooldown:SetDrawBling(false)
+        
+        -- Always set cooldown to ensure display is correct after icon recycling
+        icon.cooldown:SetCooldown(startTime, duration)
         icon.cooldown:Show()
+        
+        -- Desaturate icon texture while on cooldown
+        icon.texture:SetDesaturated(true)
     else
         icon.cooldown:Clear()
         icon.cooldown:Hide()
+        -- Restore icon saturation when not on cooldown
+        icon.texture:SetDesaturated(false)
     end
     
     -- Initialize animation state
@@ -815,9 +928,23 @@ RefreshDock = function()
     end
     wipe(visibleIcons)
     
-    -- Get fresh teleport list (filtered - no dividers from scanner)
-    teleportList = Scanner:GetOrderedList()
-    local totalItems = #teleportList
+    -- Get fresh portal list (filtered - no dividers from scanner)
+    local rawList = Scanner:GetOrderedList()
+    
+    -- Filter out items with 30+ minute cooldowns if setting is enabled
+    -- Exception: Current Season (SEASONAL_DUNGEON, SEASONAL_RAID) always shows
+    local hideLongCooldowns = Plugin:GetSetting(1, "HideLongCooldowns")
+    portalList = {}
+    for _, item in ipairs(rawList) do
+        local cooldownRemaining = item.cooldown or 0
+        local isCurrentSeason = item.category == "SEASONAL_DUNGEON" or item.category == "SEASONAL_RAID"
+        -- 30 minutes = 1800 seconds
+        if not hideLongCooldowns or isCurrentSeason or cooldownRemaining < 1800 then
+            table.insert(portalList, item)
+        end
+    end
+    
+    local totalItems = #portalList
     
     if totalItems == 0 then
         dock:Hide()
@@ -844,7 +971,7 @@ RefreshDock = function()
         
         -- INFINITE SCROLL: Wrap around using modulo
         local actualIndex = ((scrollOffset + displayIndex) % totalItems) + 1
-        local data = teleportList[actualIndex]
+        local data = portalList[actualIndex]
         
         if data then
             -- Get or create icon from pool
@@ -853,7 +980,7 @@ RefreshDock = function()
             end
             local icon = iconPool[iconPoolIndex]
             if not icon then
-                icon = CreateTeleportIcon()
+                icon = CreatePortalIcon()
                 table.insert(iconPool, icon)
             end
             
@@ -894,11 +1021,56 @@ end
 local function OnMouseWheel(self, delta)
     if not CanInteract() then return end
     
-    local totalIcons = #teleportList
+    local totalIcons = #portalList
     if totalIcons == 0 then return end
     
-    -- INFINITE SCROLL: Wrap around
-    scrollOffset = (scrollOffset - delta) % totalIcons
+    -- SHIFT+SCROLL: Jump to next/previous category
+    if IsShiftKeyDown() then
+        -- Find current center item's category
+        local maxVisible = Plugin:GetSetting(1, "MaxVisible") or 11
+        maxVisible = NormalizeMaxVisible(maxVisible, totalIcons)
+        local centerSlot = math.floor(maxVisible / 2)
+        local currentCenterIndex = ((scrollOffset + centerSlot) % totalIcons) + 1
+        local currentCategory = portalList[currentCenterIndex] and portalList[currentCenterIndex].category
+        
+        if delta > 0 then
+            -- Scroll UP (previous category): search backwards for different category
+            for offset = 1, totalIcons - 1 do
+                local checkIndex = ((currentCenterIndex - 1 - offset) % totalIcons) + 1
+                local item = portalList[checkIndex]
+                if item and item.category ~= currentCategory then
+                    -- Found a different category, now find the FIRST item of that category
+                    local targetCategory = item.category
+                    local firstOfCategory = checkIndex
+                    for back = 1, totalIcons do
+                        local prevIndex = ((checkIndex - 1 - back) % totalIcons) + 1
+                        local prevItem = portalList[prevIndex]
+                        if not prevItem or prevItem.category ~= targetCategory then
+                            break
+                        end
+                        firstOfCategory = prevIndex
+                    end
+                    -- Set scroll to center this item
+                    scrollOffset = (firstOfCategory - 1 - centerSlot + totalIcons) % totalIcons
+                    break
+                end
+            end
+        else
+            -- Scroll DOWN (next category): search forwards for different category
+            for offset = 1, totalIcons - 1 do
+                local checkIndex = ((currentCenterIndex - 1 + offset) % totalIcons) + 1
+                local item = portalList[checkIndex]
+                if item and item.category ~= currentCategory then
+                    -- Found first item of next category, center it
+                    scrollOffset = (checkIndex - 1 - centerSlot + totalIcons) % totalIcons
+                    break
+                end
+            end
+        end
+    else
+        -- Normal scroll: move one item at a time
+        scrollOffset = (scrollOffset - delta) % totalIcons
+    end
     
     RefreshDock()
 end
@@ -908,7 +1080,7 @@ end
 -- ============================================================================
 
 local function CreateDock()
-    dock = CreateFrame("Frame", "OrbitTeleportDock", UIParent)
+    dock = CreateFrame("Frame", "OrbitPortalDock", UIParent)
     dock:SetSize(44, 200)
     dock:SetPoint("LEFT", UIParent, "LEFT", 10, 0)
     dock:SetFrameStrata("MEDIUM")
@@ -974,8 +1146,14 @@ function Plugin:OnLoad()
     dock = CreateDock()
     self.frame = dock
     
+    -- Request M+ data so it's available for tooltips (otherwise requires opening M+ panel first)
+    if C_MythicPlus then
+        pcall(C_MythicPlus.RequestMapInfo)
+        pcall(C_MythicPlus.RequestCurrentAffixes)
+    end
+    
     -- Register for Edit Mode selection and settings
-    dock.editModeName = "Teleport Dock"
+    dock.editModeName = "Portal Dock"
     dock.systemIndex = 1
     dock.orbitNoSnap = true  -- Disable anchoring/snapping to other frames
     
@@ -1004,20 +1182,22 @@ function Plugin:OnLoad()
         end
     end
     
-    -- Event handling for combat state (stored on Plugin for cleanup)
+    -- Event handling for combat state and scanning
     self.eventFrame = CreateFrame("Frame")
     self.eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
     self.eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
-    self.eventFrame:RegisterEvent("SPELLS_CHANGED")
-    self.eventFrame:RegisterEvent("BAG_UPDATE_DELAYED")
-    self.eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     self.eventFrame:RegisterEvent("ENCOUNTER_START")
     self.eventFrame:RegisterEvent("ENCOUNTER_END")
+    -- Scan triggers
+    self.eventFrame:RegisterEvent("PLAYER_LOGIN")
+    self.eventFrame:RegisterEvent("SPELLS_CHANGED")
     
     self.eventFrame:SetScript("OnEvent", function(_, event)
         if event == "PLAYER_REGEN_ENABLED" then
-            if CanInteract() then
-                UpdateCombatState()
+            UpdateCombatState()
+            -- Process any queued refresh
+            if pendingRefresh then
+                pendingRefresh = false
                 RefreshDock()
             end
         elseif event == "PLAYER_REGEN_DISABLED" then
@@ -1027,68 +1207,48 @@ function Plugin:OnLoad()
         elseif event == "ENCOUNTER_END" then
             if not InCombatLockdown() then
                 UpdateCombatState()
-                RefreshDock()
-            end
-        elseif event == "SPELLS_CHANGED" or event == "BAG_UPDATE_DELAYED" then
-            if CanInteract() then
-                RefreshDock()
-            end
-        elseif event == "PLAYER_ENTERING_WORLD" then
-            C_Timer.After(1, function()
-                if CanInteract() then
+                if pendingRefresh then
+                    pendingRefresh = false
                     RefreshDock()
                 end
+            else
+                pendingRefresh = true
+            end
+        elseif event == "PLAYER_LOGIN" then
+            -- Delay scan to ensure spell APIs are ready
+            C_Timer.After(2, function()
+                RequestRefresh()
             end)
+        elseif event == "SPELLS_CHANGED" then
+            RequestRefresh()
         end
     end)
     
-    -- Cooldown refresh timer (with race condition guard)
-    self.cooldownTicker = C_Timer.NewTicker(5, function()
-        if dock and dock:IsShown() and not InCombatLockdown() then
-            -- Take snapshot to prevent race condition during iteration
-            local iconSnapshot = {}
-            for i, icon in ipairs(visibleIcons) do
-                iconSnapshot[i] = icon
-            end
-            
-            Scanner:RefreshCooldowns(teleportList)
-            
-            for _, icon in ipairs(iconSnapshot) do
-                if icon and icon.teleportData and icon.cooldown then
-                    local data = icon.teleportData
-                    if data.cooldown and data.cooldown > 0 then
-                        icon.cooldown:SetCooldown(GetTime() - data.cooldown, data.cooldown)
-                    else
-                        icon.cooldown:Clear()
-                    end
-                end
-            end
-        end
-    end)
+    -- Note: No cooldown refresh timer needed - WoW handles cooldown animation 
+    -- automatically once SetCooldown(startTime, duration) is called
     
     self:RegisterStandardEvents()
     
     -- Track Edit Mode state for disabling secure actions
     if EventRegistry then
         EventRegistry:RegisterCallback("EditMode.Enter", function()
-            if not InCombatLockdown() then
-                isEditModeActive = true
-                RefreshDock() -- Re-configure icons with Edit Mode awareness
-            end
+            isEditModeActive = true
+            RequestRefresh() -- Re-configure icons with Edit Mode awareness
         end, self)
         
         EventRegistry:RegisterCallback("EditMode.Exit", function()
-            if not InCombatLockdown() then
-                isEditModeActive = false
-                RefreshDock() -- Restore secure actions
-            end
+            isEditModeActive = false
+            RequestRefresh() -- Restore secure actions
         end, self)
     end
+    
+    -- Initial scan - queues if in combat
+    RequestRefresh()
 end
 
 function Plugin:ApplySettings()
     if not dock then return end
-    RefreshDock()
+    RequestRefresh()
 end
 
 function Plugin:OnUnload()
@@ -1112,7 +1272,7 @@ end
 function Plugin:AddSettings(dialog, systemFrame)
     local schema = {
         controls = {
-            { type = "checkbox", key = "ShowCooldowns", label = "Show Cooldowns", default = true },
+            { type = "checkbox", key = "HideLongCooldowns", label = "Hide Long Cooldowns", default = false },
             { type = "slider", key = "IconSize", label = "Icon Size", min = 24, max = 40, step = 2, default = 36 },
             { type = "slider", key = "Spacing", label = "Icon Padding", min = 0, max = 20, step = 1, default = 4 },
             { type = "slider", key = "MaxVisible", label = "Max Visible Icons", min = 3, max = 21, step = 2, default = 11 },
@@ -1125,16 +1285,14 @@ function Plugin:AddSettings(dialog, systemFrame)
 end
 
 -- Export for debugging
-addon.TeleportDock = Plugin
+addon.PortalDock = Plugin
 
 -- ============================================================================
--- SLASH COMMANDS
+-- COMMAND HANDLER (Called via /orbit portal <cmd>)
 -- ============================================================================
 
-SLASH_ORBITTELEPORT1 = "/teleport"
-SLASH_ORBITTELEPORT2 = "/tp"
-SlashCmdList["ORBITTELEPORT"] = function(msg)
-    local cmd = msg:lower():trim()
+function Plugin:HandleCommand(cmd)
+    cmd = cmd or ""
     
     if cmd == "scan" then
         -- Clear M+ cache and force refresh
@@ -1142,26 +1300,9 @@ SlashCmdList["ORBITTELEPORT"] = function(msg)
         if CanInteract() then
             RefreshDock()
         end
-        print("|cff00ff00[Orbit Teleport]|r M+ cache cleared and dock refreshed!")
-    elseif cmd == "refresh" then
-        -- Just refresh the dock
-        if CanInteract() then
-            RefreshDock()
-        end
-        print("|cff00ff00[Orbit Teleport]|r Dock refreshed!")
-    elseif cmd == "debug" then
-        -- Print all challenge mode dungeon IDs (useful for finding correct IDs)
-        print("|cff00ff00[Orbit Teleport]|r Challenge Mode Dungeons:")
-        for i = 1, 700 do
-            local name = C_ChallengeMode.GetMapUIInfo(i)
-            if name then
-                print("  ID: " .. i .. " - " .. name)
-            end
-        end
+        Orbit:Print("Portal: M+ cache cleared and dock refreshed!")
     else
-        print("|cff00ff00[Orbit Teleport]|r Commands:")
-        print("  /orbit scan - Clear M+ cache and refresh dock")
-        print("  /orbit refresh - Refresh dock")
-        print("  /orbit debug - List all challenge mode IDs")
+        print("|cFF00FFFFOrbit Portal Commands:|r")
+        print("  |cFF00FFFF/orbit portal scan|r - Clear M+ cache and refresh dock")
     end
 end

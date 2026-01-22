@@ -1,17 +1,17 @@
--- TeleportData.lua
--- Static database of teleport spells, toys, and items organized by category
+-- PortalData.lua
+-- Static database of portal spells, toys, and items organized by category
 
 local _, addon = ...
-addon.TeleportData = {}
+addon.PortalData = {}
 
-local TD = addon.TeleportData
+local PD = addon.PortalData
 
 -- ============================================================================
 -- CATEGORY CONFIGURATION
 -- ============================================================================
 
 -- Category order for dock display (priority order)
-TD.CategoryOrder = {
+PD.CategoryOrder = {
     "HEARTHSTONE",          -- Hearthstones (FIRST - default position)
     "SEASONAL_DUNGEON",     -- Current M+ rotation dungeons
     "SEASONAL_RAID",        -- Current raid tier
@@ -31,14 +31,14 @@ TD.CategoryOrder = {
     "CATA_DUNGEON",         -- Cataclysm dungeons
     "CLASSIC_DUNGEON",      -- Classic dungeons
     "ENGINEER",             -- Engineering teleports
-    "TOY",                  -- Misc teleport toys
+    "TOY",                  -- Misc portal toys
 }
 
-TD.CategoryNames = {
+PD.CategoryNames = {
     SEASONAL_DUNGEON = "Current Season",
     SEASONAL_RAID = "Current Raid",
     HEARTHSTONE = "Hearthstone",
-    CLASS = "Class Teleports",
+    CLASS = "Class Portals",
     MAGE_TELEPORT = "Mage Teleports",
     MAGE_PORTAL = "Mage Portals",
     TWW_DUNGEON = "TWW Dungeons",
@@ -54,7 +54,7 @@ TD.CategoryNames = {
     CATA_DUNGEON = "Cata Dungeons",
     CLASSIC_DUNGEON = "Classic Dungeons",
     ENGINEER = "Engineering",
-    TOY = "Teleport Toys",
+    TOY = "Portal Toys",
 }
 
 -- ============================================================================
@@ -62,7 +62,7 @@ TD.CategoryNames = {
 -- ============================================================================
 
 -- The War Within Season 3 dungeons (M+ rotation)
-TD.CURRENT_SEASON_DUNGEONS = {
+PD.CURRENT_SEASON_DUNGEONS = {
     1237215,  -- Eco-Dome Al'dani (new in S3)
     445417,   -- Ara-Kara, City of Echoes
     445414,   -- The Dawnbreaker
@@ -73,7 +73,7 @@ TD.CURRENT_SEASON_DUNGEONS = {
 }
 
 -- Current raid tier (Season 3)
-TD.CURRENT_SEASON_RAIDS = {
+PD.CURRENT_SEASON_RAIDS = {
     1239155,  -- Manaforge Omega
 }
 
@@ -82,7 +82,7 @@ TD.CURRENT_SEASON_RAIDS = {
 -- ============================================================================
 
 -- The War Within
-TD.TWW_DUNGEON = {
+PD.TWW_DUNGEON = {
     { spellID = 1216786, name = "Operation: Floodgate", short = "FLOOD", challengeModeID = 525 },
     { spellID = 1237215, name = "Eco-Dome Al'dani", short = "ECO", challengeModeID = 542 },
     { spellID = 445416, name = "City of Threads", short = "COT", challengeModeID = 502 },
@@ -98,13 +98,13 @@ TD.TWW_DUNGEON = {
     { spellID = 445443, name = "The Rookery", short = "ROOK", challengeModeID = 500 },
 }
 
-TD.TWW_RAID = {
+PD.TWW_RAID = {
     { spellID = 1239155, name = "Manaforge Omega", short = "MO" },
     { spellID = 1226482, name = "Liberation of Undermine", short = "LoU" },
 }
 
 -- Dragonflight
-TD.DF_DUNGEON = {
+PD.DF_DUNGEON = {
     { spellID = 393279, name = "The Azure Vault", short = "AV" },
     { spellID = 393273, name = "Algeth'ar Academy", short = "AA" },
     { spellID = 393262, name = "The Nokhud Offensive", short = "NO" },
@@ -115,14 +115,14 @@ TD.DF_DUNGEON = {
     { spellID = 424197, name = "Dawn of the Infinite", short = "DOTI" },
 }
 
-TD.DF_RAID = {
+PD.DF_RAID = {
     { spellID = 432257, name = "Aberrus", short = "ABER" },
     { spellID = 432254, name = "Vault of the Incarnates", short = "VOTI" },
     { spellID = 432258, name = "Amirdrassil", short = "AMIR" },
 }
 
 -- Shadowlands
-TD.SL_DUNGEON = {
+PD.SL_DUNGEON = {
     { spellID = 354462, name = "The Necrotic Wake", short = "NW", challengeModeID = 376 },
     { spellID = 354463, name = "Plaguefall", short = "PF", challengeModeID = 379 },
     { spellID = 354464, name = "Mists of Tirna Scithe", short = "MOTS", challengeModeID = 375 },
@@ -134,14 +134,14 @@ TD.SL_DUNGEON = {
     { spellID = 367416, name = "Tazavesh, the Veiled Market", short = "TAZ", challengeModeID = 391 },
 }
 
-TD.SL_RAID = {
+PD.SL_RAID = {
     { spellID = 373190, name = "Castle Nathria", short = "CN" },
     { spellID = 373191, name = "Sanctum of Domination", short = "SOD" },
     { spellID = 373192, name = "Sepulcher of the First Ones", short = "SOTO" },
 }
 
 -- Battle for Azeroth
-TD.BFA_DUNGEON = {
+PD.BFA_DUNGEON = {
     { spellID = 424167, name = "Waycrest Manor", short = "WM" },
     { spellID = 373274, name = "Operation: Mechagon", short = "MECH" },
     { spellID = 410074, name = "The Underrot", short = "UR" },
@@ -151,7 +151,7 @@ TD.BFA_DUNGEON = {
 }
 
 -- Legion
-TD.LEGION_DUNGEON = {
+PD.LEGION_DUNGEON = {
     { spellID = 410078, name = "Neltharion's Lair", short = "NL" },
     { spellID = 393764, name = "Halls of Valor", short = "HoV" },
     { spellID = 393766, name = "Court of Stars", short = "CoS" },
@@ -161,7 +161,7 @@ TD.LEGION_DUNGEON = {
 }
 
 -- Warlords of Draenor
-TD.WOD_DUNGEON = {
+PD.WOD_DUNGEON = {
     { spellID = 159897, name = "Auchindoun" },
     { spellID = 159895, name = "Bloodmaul Slag Mines" },
     { spellID = 159901, name = "The Everbloom" },
@@ -173,7 +173,7 @@ TD.WOD_DUNGEON = {
 }
 
 -- Mists of Pandaria
-TD.MOP_DUNGEON = {
+PD.MOP_DUNGEON = {
     { spellID = 131225, name = "Gate of the Setting Sun" },
     { spellID = 131222, name = "Mogu'shan Palace" },
     { spellID = 131232, name = "Scholomance" },
@@ -184,14 +184,14 @@ TD.MOP_DUNGEON = {
 }
 
 -- Cataclysm
-TD.CATA_DUNGEON = {
+PD.CATA_DUNGEON = {
     { spellID = 445424, name = "Grim Batol" },
     { spellID = 410080, name = "Vortex Pinnacle" },
     { spellID = 424142, name = "Throne of the Tides" },
 }
 
 -- Classic
-TD.CLASSIC_DUNGEON = {
+PD.CLASSIC_DUNGEON = {
     { spellID = 131231, name = "Scarlet Halls" },
     { spellID = 131229, name = "Scarlet Monastery" },
 }
@@ -203,7 +203,7 @@ TD.CLASSIC_DUNGEON = {
 -- ============================================================================
 
 -- Hearthstones that share the main cooldown (will be deduplicated)
-TD.HEARTHSTONE_SHARED = {
+PD.HEARTHSTONE_SHARED = {
     -- Primary Hearthstone
     { itemID = 6948, name = "Hearthstone", type = "item" },
     
@@ -239,16 +239,16 @@ TD.HEARTHSTONE_SHARED = {
 }
 
 -- Hearthstones with SEPARATE cooldowns (always show individually)
-TD.HEARTHSTONE_UNIQUE = {
+PD.HEARTHSTONE_UNIQUE = {
     { itemID = 110560, name = "Garrison Hearthstone", type = "item" },
     { itemID = 140192, name = "Dalaran Hearthstone", type = "item" },
     { itemID = 141605, name = "Flight Master's Whistle", type = "item" },
 }
 
 -- ============================================================================
--- CLASS TELEPORTS
+-- CLASS PORTALS
 -- ============================================================================
-TD.CLASS = {
+PD.CLASS = {
     -- Death Knight
     { spellID = 50977, name = "Death Gate", class = "DEATHKNIGHT" },
     
@@ -267,7 +267,7 @@ TD.CLASS = {
 -- ============================================================================
 -- MAGE TELEPORTS (Personal)
 -- ============================================================================
-TD.MAGE_TELEPORT = {
+PD.MAGE_TELEPORT = {
     -- Alliance
     { spellID = 3561, name = "Teleport: Stormwind", faction = "Alliance" },
     { spellID = 3562, name = "Teleport: Ironforge", faction = "Alliance" },
@@ -304,7 +304,7 @@ TD.MAGE_TELEPORT = {
 -- ============================================================================
 -- MAGE PORTALS (Group)
 -- ============================================================================
-TD.MAGE_PORTAL = {
+PD.MAGE_PORTAL = {
     -- Alliance
     { spellID = 10059, name = "Portal: Stormwind", faction = "Alliance" },
     { spellID = 11416, name = "Portal: Ironforge", faction = "Alliance" },
@@ -339,9 +339,9 @@ TD.MAGE_PORTAL = {
 }
 
 -- ============================================================================
--- ENGINEERING TELEPORTS
+-- ENGINEERING PORTALS
 -- ============================================================================
-TD.ENGINEER = {
+PD.ENGINEER = {
     -- Classic/TBC (Items)
     { itemID = 18986, name = "Ultrasafe Transporter: Gadgetzan", type = "item", reqSkill = 260 },
     { itemID = 18984, name = "Dimensional Ripper - Everlook", type = "item", reqSkill = 260 },
@@ -375,9 +375,9 @@ TD.ENGINEER = {
 }
 
 -- ============================================================================
--- TELEPORT TOYS (Miscellaneous)
+-- PORTAL TOYS (Miscellaneous)
 -- ============================================================================
-TD.TOY = {
+PD.TOY = {
     { itemID = 64457, name = "The Last Relic of Argus", destination = "Random" },
     { itemID = 95567, name = "Kirin Tor Beacon", destination = "Isle of Thunder", faction = "Alliance" },
     { itemID = 95568, name = "Sunreaver Beacon", destination = "Isle of Thunder", faction = "Horde" },
@@ -395,7 +395,7 @@ TD.TOY = {
     { itemID = 168862, name = "G.E.A.R. Tracking Beacon", destination = "Mechagon" },
     { itemID = 180817, name = "Cypher of Relocation", destination = "Oribos" },
     
-    -- Rings (teleport jewelry)
+    -- Rings (portal jewelry)
     { itemID = 40586, name = "Band of the Kirin Tor", destination = "Dalaran (Northrend)", type = "item" },
     { itemID = 44934, name = "Loop of the Kirin Tor", destination = "Dalaran (Northrend)", type = "item" },
     { itemID = 44935, name = "Ring of the Kirin Tor", destination = "Dalaran (Northrend)", type = "item" },
@@ -421,14 +421,14 @@ TD.TOY = {
 -- ============================================================================
 -- HELPER: Check if a spell is in current season
 -- ============================================================================
-function TD:IsCurrentSeasonDungeon(spellID)
+function PD:IsCurrentSeasonDungeon(spellID)
     for _, id in ipairs(self.CURRENT_SEASON_DUNGEONS) do
         if id == spellID then return true end
     end
     return false
 end
 
-function TD:IsCurrentSeasonRaid(spellID)
+function PD:IsCurrentSeasonRaid(spellID)
     for _, id in ipairs(self.CURRENT_SEASON_RAIDS) do
         if id == spellID then return true end
     end

@@ -1,0 +1,25 @@
+## Interface: 120001, 120000
+## Title: Dock: Portal
+## Notes: A Scrollable bar for your characters portals.
+## Author: MoONSHO7 / M7
+## Version: @project-version@
+## Dependencies: Orbit
+## OptionalDeps: LibQTip-1.0
+## IconTexture: Interface\AddOns\Orbit_Portal\Orbit.png
+## Group: Orbit
+## Category: Orbit UI
+
+## X-Curse-Project-ID: 1439533
+## X-Part-Of: Orbit
+## X-License: All Rights Reserved
+## X-Category: Interface Enhancements
+
+# Libraries
+LibQTip-1.0\lib.xml
+
+# Data
+Core\PortalData.lua
+
+# Core
+Core\PortalScanner.lua
+Core\PortalDock.lua

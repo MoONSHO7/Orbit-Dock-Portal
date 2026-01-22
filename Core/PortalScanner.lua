@@ -1,11 +1,11 @@
--- TeleportScanner.lua
--- Runtime scanner to detect available teleports for the current character
+-- PortalScanner.lua
+-- Runtime scanner to detect available portals for the current character
 
 local _, addon = ...
-addon.TeleportScanner = {}
+addon.PortalScanner = {}
 
-local Scanner = addon.TeleportScanner
-local TD = addon.TeleportData
+local Scanner = addon.PortalScanner
+local PD = addon.PortalData
 
 -- Cache player info
 local playerClass = select(2, UnitClass("player"))
@@ -88,9 +88,16 @@ local function GetSpellDetails(spellID)
     return nil, nil
 end
 
--- Get item info (name, icon)
+-- Get item info (name, icon) - uses GetItemInfoInstant for immediate results
 local function GetItemDetails(itemID)
-    local name, _, _, _, _, _, _, _, _, icon = C_Item.GetItemInfo(itemID)
+    -- GetItemInfoInstant returns immediately (synchronous) - use for icon
+    local _, _, _, _, icon = C_Item.GetItemInfoInstant(itemID)
+    -- GetItemInfo may return nil if item isn't cached - use for name with fallback
+    local name = C_Item.GetItemInfo(itemID)
+    -- If name isn't cached yet, use "Item #ID" as placeholder
+    if not name then
+        name = "Item " .. itemID
+    end
     return name, icon
 end
 
@@ -106,17 +113,19 @@ function Scanner:ScanDungeonCategory(categoryData, categoryName)
         -- Check faction requirement
         if MeetsFactionRequirement(data) then
             if IsSpellAvailable(data.spellID) then
-                local name, icon = GetSpellDetails(data.spellID)
-                if name then
-                    local cooldown = GetCooldownInfo(true, data.spellID)
+                local spellName, icon = GetSpellDetails(data.spellID)
+                if spellName then
+                    local cooldown, cooldownDuration = GetCooldownInfo(true, data.spellID)
                     table.insert(results, {
                         type = "spell",
                         spellID = data.spellID,
-                        name = name or data.name,
+                        name = spellName,  -- Portal spell name
+                        instanceName = data.name,  -- Dungeon/instance name from PortalData
                         short = data.short,
                         challengeModeID = data.challengeModeID,
                         icon = icon,
                         cooldown = cooldown,
+                        cooldownDuration = cooldownDuration,
                         category = categoryName,
                     })
                 end
@@ -133,38 +142,40 @@ function Scanner:ScanSeasonalDungeons()
     local seasonalSpells = {}
     
     -- Build lookup table for seasonal dungeons
-    for _, spellID in ipairs(TD.CURRENT_SEASON_DUNGEONS) do
+    for _, spellID in ipairs(PD.CURRENT_SEASON_DUNGEONS) do
         seasonalSpells[spellID] = true
     end
     
     -- Check all expansion dungeon categories for seasonal dungeons
     local dungeonCategories = {
-        TD.TWW_DUNGEON,
-        TD.DF_DUNGEON,
-        TD.SL_DUNGEON,
-        TD.BFA_DUNGEON,
-        TD.LEGION_DUNGEON,
-        TD.WOD_DUNGEON,
-        TD.MOP_DUNGEON,
-        TD.CATA_DUNGEON,
-        TD.CLASSIC_DUNGEON,
+        PD.TWW_DUNGEON,
+        PD.DF_DUNGEON,
+        PD.SL_DUNGEON,
+        PD.BFA_DUNGEON,
+        PD.LEGION_DUNGEON,
+        PD.WOD_DUNGEON,
+        PD.MOP_DUNGEON,
+        PD.CATA_DUNGEON,
+        PD.CLASSIC_DUNGEON,
     }
     
     for _, categoryData in ipairs(dungeonCategories) do
         for _, data in ipairs(categoryData or {}) do
             if seasonalSpells[data.spellID] and MeetsFactionRequirement(data) then
                 if IsSpellAvailable(data.spellID) then
-                    local name, icon = GetSpellDetails(data.spellID)
-                    if name then
-                        local cooldown = GetCooldownInfo(true, data.spellID)
+                    local spellName, icon = GetSpellDetails(data.spellID)
+                    if spellName then
+                        local cooldown, cooldownDuration = GetCooldownInfo(true, data.spellID)
                         table.insert(results, {
                             type = "spell",
                             spellID = data.spellID,
-                            name = name or data.name,
+                            name = spellName,  -- Portal spell name
+                            instanceName = data.name,  -- Dungeon/instance name from PortalData
                             short = data.short,
                             challengeModeID = data.challengeModeID,
                             icon = icon,
                             cooldown = cooldown,
+                            cooldownDuration = cooldownDuration,
                             category = "SEASONAL_DUNGEON",
                         })
                     end
@@ -181,26 +192,28 @@ function Scanner:ScanSeasonalRaids()
     local results = {}
     local seasonalSpells = {}
     
-    for _, spellID in ipairs(TD.CURRENT_SEASON_RAIDS) do
+    for _, spellID in ipairs(PD.CURRENT_SEASON_RAIDS) do
         seasonalSpells[spellID] = true
     end
     
-    local raidCategories = { TD.TWW_RAID, TD.DF_RAID, TD.SL_RAID }
+    local raidCategories = { PD.TWW_RAID, PD.DF_RAID, PD.SL_RAID }
     
     for _, categoryData in ipairs(raidCategories) do
         for _, data in ipairs(categoryData or {}) do
             if seasonalSpells[data.spellID] then
                 if IsSpellAvailable(data.spellID) then
-                    local name, icon = GetSpellDetails(data.spellID)
-                    if name then
-                        local cooldown = GetCooldownInfo(true, data.spellID)
+                    local spellName, icon = GetSpellDetails(data.spellID)
+                    if spellName then
+                        local cooldown, cooldownDuration = GetCooldownInfo(true, data.spellID)
                         table.insert(results, {
                             type = "spell",
                             spellID = data.spellID,
-                            name = name or data.name,
+                            name = spellName,  -- Portal spell name
+                            instanceName = data.name,  -- Raid/instance name from PortalData
                             short = data.short,
                             icon = icon,
                             cooldown = cooldown,
+                            cooldownDuration = cooldownDuration,
                             category = "SEASONAL_RAID",
                         })
                     end
@@ -218,7 +231,7 @@ function Scanner:ScanHearthstones()
     local allAvailable = {}
     
     -- Collect all available shared-cooldown hearthstones
-    for _, data in ipairs(TD.HEARTHSTONE_SHARED or {}) do
+    for _, data in ipairs(PD.HEARTHSTONE_SHARED or {}) do
         local available = false
         local name, icon
         
@@ -247,24 +260,25 @@ function Scanner:ScanHearthstones()
     -- If we have any hearthstones, create ONE unified entry
     if #allAvailable > 0 then
         -- Get cooldown from first available (they share cooldown)
-        local cooldown = GetCooldownInfo(false, allAvailable[1].itemID)
+        local cooldown, cooldownDuration = GetCooldownInfo(false, allAvailable[1].itemID)
         
         -- Get icon from base hearthstone item (6948)
         local _, _, _, _, hearthIcon = C_Item.GetItemInfoInstant(6948)
         
         table.insert(results, {
-            type = "random_hearthstone",  -- Special type for TeleportDock to handle
+            type = "random_hearthstone",  -- Special type for PortalDock to handle
             name = "Hearthstone",
             short = "HS",
             icon = hearthIcon or 134414,  -- Fallback to common hearth icon
             cooldown = cooldown,
+            cooldownDuration = cooldownDuration,
             category = "HEARTHSTONE",
             availableHearthstones = allAvailable,  -- Store all options for random selection
         })
     end
     
     -- Add all unique cooldown hearthstones (these are separate, not randomized)
-    for _, data in ipairs(TD.HEARTHSTONE_UNIQUE or {}) do
+    for _, data in ipairs(PD.HEARTHSTONE_UNIQUE or {}) do
         local available = false
         local name, icon
         
@@ -294,7 +308,7 @@ end
 function Scanner:ScanClassSpells()
     local results = {}
     
-    for _, data in ipairs(TD.CLASS or {}) do
+    for _, data in ipairs(PD.CLASS or {}) do
         if MeetsClassRequirement(data) then
             if IsSpellAvailable(data.spellID) then
                 local name, icon = GetSpellDetails(data.spellID)
@@ -321,7 +335,7 @@ function Scanner:ScanMageTeleports()
     
     if playerClass ~= "MAGE" then return results end
     
-    for _, data in ipairs(TD.MAGE_TELEPORT or {}) do
+    for _, data in ipairs(PD.MAGE_TELEPORT or {}) do
         if MeetsFactionRequirement(data) then
             if IsSpellAvailable(data.spellID) then
                 local name, icon = GetSpellDetails(data.spellID)
@@ -348,7 +362,7 @@ function Scanner:ScanMagePortals()
     
     if playerClass ~= "MAGE" then return results end
     
-    for _, data in ipairs(TD.MAGE_PORTAL or {}) do
+    for _, data in ipairs(PD.MAGE_PORTAL or {}) do
         if MeetsFactionRequirement(data) then
             if IsSpellAvailable(data.spellID) then
                 local name, icon = GetSpellDetails(data.spellID)
@@ -374,7 +388,7 @@ end
 function Scanner:ScanToys()
     local results = {}
     
-    for _, data in ipairs(TD.TOY or {}) do
+    for _, data in ipairs(PD.TOY or {}) do
         if MeetsFactionRequirement(data) then
             local itemID = data.itemID
             local available = false
@@ -416,8 +430,9 @@ function Scanner:ScanEngineeringSpells()
     local professions = { GetProfessions() }
     for _, profIndex in pairs(professions) do
         if profIndex then
-            local name, _, skillRank = GetProfessionInfo(profIndex)
-            if name and name:lower():find("engineering") then
+            local name, _, skillRank, _, _, _, skillLineID = GetProfessionInfo(profIndex)
+            -- Use skill line ID 202 (Engineering) for locale-independent detection
+            if skillLineID == 202 then
                 hasEngineering = true
                 rank = skillRank
                 break
@@ -429,7 +444,7 @@ function Scanner:ScanEngineeringSpells()
         return results
     end
     
-    for _, data in ipairs(TD.ENGINEER or {}) do
+    for _, data in ipairs(PD.ENGINEER or {}) do
         if MeetsFactionRequirement(data) and (not data.reqSkill or rank >= data.reqSkill) then
             local available = false
             local name, icon
@@ -466,28 +481,28 @@ end
 -- ============================================================================
 
 function Scanner:ScanAll()
-    local allTeleports = {}
+    local allPortals = {}
     
     -- Scan seasonal content first (highest priority)
-    allTeleports.SEASONAL_DUNGEON = self:ScanSeasonalDungeons()
-    allTeleports.SEASONAL_RAID = self:ScanSeasonalRaids()
+    allPortals.SEASONAL_DUNGEON = self:ScanSeasonalDungeons()
+    allPortals.SEASONAL_RAID = self:ScanSeasonalRaids()
     
     -- Hearthstones (deduplicated)
-    allTeleports.HEARTHSTONE = self:ScanHearthstones()
+    allPortals.HEARTHSTONE = self:ScanHearthstones()
     
-    -- Class teleports
-    allTeleports.CLASS = self:ScanClassSpells()
+    -- Class portals
+    allPortals.CLASS = self:ScanClassSpells()
     
     -- Mage spells (separated)
-    allTeleports.MAGE_TELEPORT = self:ScanMageTeleports()
-    allTeleports.MAGE_PORTAL = self:ScanMagePortals()
+    allPortals.MAGE_TELEPORT = self:ScanMageTeleports()
+    allPortals.MAGE_PORTAL = self:ScanMagePortals()
     
     -- Build set of seasonal spells to exclude from expansion categories
     local seasonalSpells = {}
-    for _, spellID in ipairs(TD.CURRENT_SEASON_DUNGEONS) do
+    for _, spellID in ipairs(PD.CURRENT_SEASON_DUNGEONS) do
         seasonalSpells[spellID] = true
     end
-    for _, spellID in ipairs(TD.CURRENT_SEASON_RAIDS) do
+    for _, spellID in ipairs(PD.CURRENT_SEASON_RAIDS) do
         seasonalSpells[spellID] = true
     end
     
@@ -502,24 +517,24 @@ function Scanner:ScanAll()
         return filtered
     end
     
-    allTeleports.TWW_DUNGEON = filterSeasonal(self:ScanDungeonCategory(TD.TWW_DUNGEON, "TWW_DUNGEON"))
-    allTeleports.TWW_RAID = filterSeasonal(self:ScanDungeonCategory(TD.TWW_RAID, "TWW_RAID"))
-    allTeleports.DF_DUNGEON = filterSeasonal(self:ScanDungeonCategory(TD.DF_DUNGEON, "DF_DUNGEON"))
-    allTeleports.DF_RAID = filterSeasonal(self:ScanDungeonCategory(TD.DF_RAID, "DF_RAID"))
-    allTeleports.SL_DUNGEON = filterSeasonal(self:ScanDungeonCategory(TD.SL_DUNGEON, "SL_DUNGEON"))
-    allTeleports.SL_RAID = filterSeasonal(self:ScanDungeonCategory(TD.SL_RAID, "SL_RAID"))
-    allTeleports.BFA_DUNGEON = filterSeasonal(self:ScanDungeonCategory(TD.BFA_DUNGEON, "BFA_DUNGEON"))
-    allTeleports.LEGION_DUNGEON = filterSeasonal(self:ScanDungeonCategory(TD.LEGION_DUNGEON, "LEGION_DUNGEON"))
-    allTeleports.WOD_DUNGEON = filterSeasonal(self:ScanDungeonCategory(TD.WOD_DUNGEON, "WOD_DUNGEON"))
-    allTeleports.MOP_DUNGEON = filterSeasonal(self:ScanDungeonCategory(TD.MOP_DUNGEON, "MOP_DUNGEON"))
-    allTeleports.CATA_DUNGEON = filterSeasonal(self:ScanDungeonCategory(TD.CATA_DUNGEON, "CATA_DUNGEON"))
-    allTeleports.CLASSIC_DUNGEON = filterSeasonal(self:ScanDungeonCategory(TD.CLASSIC_DUNGEON, "CLASSIC_DUNGEON"))
+    allPortals.TWW_DUNGEON = filterSeasonal(self:ScanDungeonCategory(PD.TWW_DUNGEON, "TWW_DUNGEON"))
+    allPortals.TWW_RAID = filterSeasonal(self:ScanDungeonCategory(PD.TWW_RAID, "TWW_RAID"))
+    allPortals.DF_DUNGEON = filterSeasonal(self:ScanDungeonCategory(PD.DF_DUNGEON, "DF_DUNGEON"))
+    allPortals.DF_RAID = filterSeasonal(self:ScanDungeonCategory(PD.DF_RAID, "DF_RAID"))
+    allPortals.SL_DUNGEON = filterSeasonal(self:ScanDungeonCategory(PD.SL_DUNGEON, "SL_DUNGEON"))
+    allPortals.SL_RAID = filterSeasonal(self:ScanDungeonCategory(PD.SL_RAID, "SL_RAID"))
+    allPortals.BFA_DUNGEON = filterSeasonal(self:ScanDungeonCategory(PD.BFA_DUNGEON, "BFA_DUNGEON"))
+    allPortals.LEGION_DUNGEON = filterSeasonal(self:ScanDungeonCategory(PD.LEGION_DUNGEON, "LEGION_DUNGEON"))
+    allPortals.WOD_DUNGEON = filterSeasonal(self:ScanDungeonCategory(PD.WOD_DUNGEON, "WOD_DUNGEON"))
+    allPortals.MOP_DUNGEON = filterSeasonal(self:ScanDungeonCategory(PD.MOP_DUNGEON, "MOP_DUNGEON"))
+    allPortals.CATA_DUNGEON = filterSeasonal(self:ScanDungeonCategory(PD.CATA_DUNGEON, "CATA_DUNGEON"))
+    allPortals.CLASSIC_DUNGEON = filterSeasonal(self:ScanDungeonCategory(PD.CLASSIC_DUNGEON, "CLASSIC_DUNGEON"))
     
     -- Engineering and toys
-    allTeleports.ENGINEER = self:ScanEngineeringSpells()
-    allTeleports.TOY = self:ScanToys()
+    allPortals.ENGINEER = self:ScanEngineeringSpells()
+    allPortals.TOY = self:ScanToys()
     
-    return allTeleports
+    return allPortals
 end
 
 -- Returns flattened list with category order preserved (no dividers)
@@ -527,7 +542,7 @@ function Scanner:GetOrderedList()
     local allByCategory = self:ScanAll()
     local ordered = {}
     
-    for _, category in ipairs(TD.CategoryOrder) do
+    for _, category in ipairs(PD.CategoryOrder) do
         local items = allByCategory[category]
         if items and #items > 0 then
             -- Add items directly (no dividers), set category on each
@@ -542,18 +557,18 @@ function Scanner:GetOrderedList()
 end
 
 -- Refresh cooldowns for existing list (cheaper than full rescan)
-function Scanner:RefreshCooldowns(teleportList)
-    for _, item in ipairs(teleportList) do
+function Scanner:RefreshCooldowns(portalList)
+    for _, item in ipairs(portalList) do
         if item.type == "random_hearthstone" then
             -- For random hearthstone, get cooldown from first available hearthstone
             if item.availableHearthstones and #item.availableHearthstones > 0 then
-                item.cooldown = GetCooldownInfo(false, item.availableHearthstones[1].itemID)
+                item.cooldown, item.cooldownDuration = GetCooldownInfo(false, item.availableHearthstones[1].itemID)
             end
         else
             local isSpell = item.type == "spell"
             local id = isSpell and item.spellID or item.itemID
             if id then
-                item.cooldown = GetCooldownInfo(isSpell, id)
+                item.cooldown, item.cooldownDuration = GetCooldownInfo(isSpell, id)
             end
         end
     end
