@@ -686,6 +686,14 @@ local function CreatePortalIcon()
             local categoryName = PD.CategoryNames[data.category] or data.category or "Portal"
             GameTooltip:AddLine(categoryName, 0.5, 0.5, 0.5)
             
+            -- For hearthstones, show bind location
+            if data.category == "HEARTHSTONE" or data.type == "random_hearthstone" then
+                local bindLocation = GetBindLocation()
+                if bindLocation and bindLocation ~= "" then
+                    GameTooltip:AddDoubleLine("Destination:", bindLocation, 0.7, 0.7, 0.7, 0.5, 1, 0.5)
+                end
+            end
+            
             -- For seasonal dungeons with M+ data, show rating and best run
             if data.challengeModeID and (data.category == "SEASONAL_DUNGEON") then
                 GameTooltip:AddLine(" ")  -- Separator
