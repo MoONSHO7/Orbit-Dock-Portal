@@ -522,7 +522,7 @@ end
 
 local function CreatePortalIcon()
     local icon = CreateFrame("Button", nil, dock, "SecureActionButtonTemplate")
-    icon:SetPropagateMouseClicks(true)
+    icon:RegisterForClicks("AnyUp", "AnyDown")
     icon:SetSize(36, 36)
     
     -- Circular mask for round icons
@@ -620,6 +620,11 @@ local function CreatePortalIcon()
                 end
             end
         end
+    end)
+    
+    -- PostClick handler for click sound feedback
+    icon:SetScript("PostClick", function(self)
+        PlaySoundFile("Interface\\AddOns\\Orbit_Portal\\Audio\\switch-sound.ogg", "SFX")
     end)
     
     -- Scripts
@@ -1081,6 +1086,12 @@ local function CreateDock()
     dock = CreateFrame("Frame", "OrbitPortalDock", UIParent)
     dock:SetSize(44, 200)
     dock:SetPoint("LEFT", UIParent, "LEFT", 10, 0)
+    
+    -- Apply Orbit's pixel-perfect scaling for crisp rendering across resolutions
+    if OrbitEngine.Pixel then
+        OrbitEngine.Pixel:Enforce(dock)
+    end
+    
     dock:SetFrameStrata("MEDIUM")
     dock:SetFrameLevel(100)
     dock:SetClampedToScreen(true)
