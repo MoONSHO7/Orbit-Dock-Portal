@@ -25,6 +25,15 @@ local function IsToyOwned(itemID)
     return PlayerHasToy and PlayerHasToy(itemID)
 end
 
+-- Check if a toy is usable (owned AND can be used in current zone)
+local function IsToyUsable(itemID)
+    if not PlayerHasToy or not PlayerHasToy(itemID) then
+        return false
+    end
+    -- C_ToyBox.IsToyUsable checks zone restrictions, level requirements, etc.
+    return C_ToyBox and C_ToyBox.IsToyUsable and C_ToyBox.IsToyUsable(itemID)
+end
+
 
 -- Check if player has an item in bags
 local function HasItem(itemID)
@@ -282,7 +291,12 @@ function Scanner:ScanHearthstones()
         local available = false
         local name, icon
         
-        if data.type == "item" then
+        if data.type == "toy" then
+            available = IsToyOwned(data.itemID)
+            if available then
+                name, icon = GetItemDetails(data.itemID)
+            end
+        elseif data.type == "item" then
             available = HasItem(data.itemID)
             if available then
                 name, icon = GetItemDetails(data.itemID)
@@ -290,13 +304,14 @@ function Scanner:ScanHearthstones()
         end
         
         if available then
-            local cooldown = GetCooldownInfo(false, data.itemID)
+            local cooldown, cooldownDuration = GetCooldownInfo(false, data.itemID)
             table.insert(results, {
-                type = "item",
+                type = data.type,  -- Preserve original type (toy or item)
                 itemID = data.itemID,
                 name = name or data.name,
                 icon = icon,
                 cooldown = cooldown,
+                cooldownDuration = cooldownDuration,
                 category = "HEARTHSTONE",
             })
         end
@@ -397,7 +412,8 @@ function Scanner:ScanToys()
             if data.type == "item" then
                 available = HasItem(itemID)
             else
-                available = IsToyOwned(itemID)
+                -- Use IsToyUsable to filter out toys that can't be used in current zone
+                available = IsToyUsable(itemID)
             end
             
             if available then
@@ -451,7 +467,8 @@ function Scanner:ScanEngineeringSpells()
             local itemID = data.itemID
             
             if data.type == "toy" then
-                available = IsToyOwned(itemID)
+                -- Use IsToyUsable to filter out toys that can't be used in current zone
+                available = IsToyUsable(itemID)
             elseif data.type == "item" then
                 available = HasItem(itemID)
             end

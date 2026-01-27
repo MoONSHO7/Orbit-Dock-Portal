@@ -229,9 +229,10 @@ PD.HEARTHSTONE_SHARED = {
 }
 
 -- Hearthstones with SEPARATE cooldowns (always show individually)
+-- Note: Garrison HS and Dalaran HS were converted to toys in patch 10.1.5+
 PD.HEARTHSTONE_UNIQUE = {
-    { itemID = 110560, name = "Garrison Hearthstone", type = "item" },
-    { itemID = 140192, name = "Dalaran Hearthstone", type = "item" },
+    { itemID = 110560, name = "Garrison Hearthstone", type = "toy" },
+    { itemID = 140192, name = "Dalaran Hearthstone", type = "toy" },
     { itemID = 141605, name = "Flight Master's Whistle", type = "item" },
 }
 
