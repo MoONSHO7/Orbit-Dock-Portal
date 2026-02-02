@@ -11,6 +11,9 @@ local PD = addon.PortalData
 local playerClass = select(2, UnitClass("player"))
 local playerFaction = UnitFactionGroup("player")
 
+-- Cache for async housing data
+local cachedHouseList = nil
+
 -- ============================================================================
 -- DETECTION FUNCTIONS
 -- ============================================================================
@@ -493,6 +496,94 @@ function Scanner:ScanEngineeringSpells()
     return results
 end
 
+-- Scan for Player Housing teleport
+function Scanner:ScanHousing()
+    local results = {}
+    
+    -- Check if housing API is available
+    if not C_Housing or not C_Housing.TeleportHome then
+        return results
+    end
+    
+    -- Try multiple detection methods (in order of reliability):
+    -- 1. Cached house list from async PLAYER_HOUSE_LIST_UPDATED event
+    -- 2. GetTrackedHouseGuid (may return tracked house synchronously)
+    -- 3. If player is level 80+ and C_Housing exists, assume they can access housing
+    
+    local hasHouse = false
+    local houseInfo = nil
+    local displayName = "Teleport to Plot"
+    local neighborhoodName = nil
+    
+    -- Method 1: Check cached house list
+    if cachedHouseList and #cachedHouseList > 0 then
+        hasHouse = true
+        houseInfo = cachedHouseList[1]
+        displayName = houseInfo.houseName or houseInfo.neighborhoodName or "My Plot"
+        neighborhoodName = houseInfo.neighborhoodName
+    end
+    
+    -- Method 2: Check tracked house (synchronous)
+    if not hasHouse and C_Housing.GetTrackedHouseGuid then
+        local trackedGuid = C_Housing.GetTrackedHouseGuid()
+        if trackedGuid then
+            hasHouse = true
+            displayName = "My Plot"
+        end
+    end
+    
+    -- Method 3: Level 80+ with Housing API available = can likely use housing
+    -- The macro will handle the actual teleport; if no house, nothing happens
+    if not hasHouse then
+        local level = UnitLevel("player")
+        if level and level >= 80 then
+            hasHouse = true
+            displayName = "Teleport to Plot"
+        end
+    end
+    
+    if not hasHouse then
+        return results
+    end
+    
+    -- Get cooldown info (if available)
+    local cooldown, cooldownDuration = 0, 0
+    local ok, cdInfo = pcall(function()
+        return C_Housing.GetVisitCooldownInfo and C_Housing.GetVisitCooldownInfo()
+    end)
+    if ok and cdInfo and cdInfo.startTime and cdInfo.duration then
+        local remaining = (cdInfo.startTime + cdInfo.duration) - GetTime()
+        cooldown = remaining > 0 and remaining or 0
+        cooldownDuration = cdInfo.duration
+    end
+    
+    table.insert(results, {
+        type = "housing",
+        name = displayName,
+        instanceName = neighborhoodName,
+        short = "HOME",
+        iconAtlas = "dashboard-panel-homestone-teleport-button",  -- Blizzard's housing teleport icon
+        cooldown = cooldown,
+        cooldownDuration = cooldownDuration,
+        category = "HOUSING",
+        houseInfo = houseInfo,
+    })
+    
+    return results
+end
+
+-- Update cached house list (called when PLAYER_HOUSE_LIST_UPDATED fires)
+function Scanner:UpdateHousingCache(houseInfos)
+    cachedHouseList = houseInfos
+end
+
+-- Request housing data (triggers async response via PLAYER_HOUSE_LIST_UPDATED)
+function Scanner:RequestHousingData()
+    if C_Housing and C_Housing.GetPlayerOwnedHouses then
+        C_Housing.GetPlayerOwnedHouses()
+    end
+end
+
 -- ============================================================================
 -- MAIN SCAN FUNCTION
 -- ============================================================================
@@ -506,6 +597,9 @@ function Scanner:ScanAll()
     
     -- Hearthstones (deduplicated)
     allPortals.HEARTHSTONE = self:ScanHearthstones()
+    
+    -- Player Housing teleport
+    allPortals.HOUSING = self:ScanHousing()
     
     -- Class portals
     allPortals.CLASS = self:ScanClassSpells()

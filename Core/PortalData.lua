@@ -11,6 +11,7 @@ local PD = addon.PortalData
 -- Category order for dock display (priority order)
 PD.CategoryOrder = {
     "HEARTHSTONE",          -- Hearthstones (FIRST - default position)
+    "HOUSING",              -- Player Housing teleport
     "SEASONAL_DUNGEON",     -- Current M+ rotation dungeons
     "SEASONAL_RAID",        -- Current raid tier
     "CLASS",                -- Class-specific (e.g., DK Gate, Monk Zen, Druid Dreamwalk)
@@ -36,6 +37,7 @@ PD.CategoryNames = {
     SEASONAL_DUNGEON = "Current Season",
     SEASONAL_RAID = "Current Raid",
     HEARTHSTONE = "Hearthstone",
+    HOUSING = "Player Housing",
     CLASS = "Class Portals",
     MAGE_TELEPORT = "Mage Teleports",
     MAGE_PORTAL = "Mage Portals",

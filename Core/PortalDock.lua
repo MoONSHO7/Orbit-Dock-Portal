@@ -839,7 +839,10 @@ local function ConfigureIcon(icon, data, index)
     end
     icon.border:SetSize(borderSize, borderSize)
     
-    if data.icon then
+    if data.iconAtlas then
+        -- Use atlas for special icons like housing
+        icon.texture:SetAtlas(data.iconAtlas)
+    elseif data.icon then
         icon.texture:SetTexture(data.icon)
     else
         icon.texture:SetTexture(134400)
@@ -874,6 +877,14 @@ local function ConfigureIcon(icon, data, index)
                     icon:SetAttribute("type", "item")
                     icon:SetAttribute("item", chosen.name)
                 end
+            end
+        elseif data.type == "housing" then
+            -- Player Housing: use secure action type 'teleporthome' with house attributes
+            icon:SetAttribute("type", "teleporthome")
+            if data.houseInfo then
+                icon:SetAttribute("house-neighborhood-guid", data.houseInfo.neighborhoodGUID)
+                icon:SetAttribute("house-guid", data.houseInfo.houseGUID)
+                icon:SetAttribute("house-plot-id", data.houseInfo.plotID)
             end
         end
     end
@@ -1219,9 +1230,11 @@ function Plugin:OnLoad()
     self.eventFrame:RegisterEvent("ENCOUNTER_END")
     -- Scan triggers
     self.eventFrame:RegisterEvent("PLAYER_LOGIN")
+    self.eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")  -- Fires on login AND reload
     self.eventFrame:RegisterEvent("SPELLS_CHANGED")
+    self.eventFrame:RegisterEvent("PLAYER_HOUSE_LIST_UPDATED")  -- Housing data async response
     
-    self.eventFrame:SetScript("OnEvent", function(_, event)
+    self.eventFrame:SetScript("OnEvent", function(_, event, ...)
         if event == "PLAYER_REGEN_ENABLED" then
             UpdateCombatState()
             -- Process any queued refresh
@@ -1246,9 +1259,19 @@ function Plugin:OnLoad()
         elseif event == "PLAYER_LOGIN" then
             -- Delay scan to ensure spell APIs are ready
             C_Timer.After(2, function()
+                Scanner:RequestHousingData()  -- Request housing data (async)
                 RequestRefresh()
             end)
         elseif event == "SPELLS_CHANGED" then
+            RequestRefresh()
+        elseif event == "PLAYER_ENTERING_WORLD" then
+            -- Fires on login and /reload - request housing data
+            Scanner:RequestHousingData()
+            RequestRefresh()
+        elseif event == "PLAYER_HOUSE_LIST_UPDATED" then
+            -- Housing data received from async API call
+            local houseInfos = ...
+            Scanner:UpdateHousingCache(houseInfos)
             RequestRefresh()
         end
     end)
