@@ -1280,6 +1280,7 @@ function Plugin:OnLoad()
     -- automatically once SetCooldown(startTime, duration) is called
     
     self:RegisterStandardEvents()
+    self:RegisterVisibilityEvents()
     
     -- Track Edit Mode state for disabling secure actions
     if EventRegistry then
@@ -1296,6 +1297,15 @@ function Plugin:OnLoad()
     
     -- Initial scan - queues if in combat
     RequestRefresh()
+end
+
+function Plugin:UpdateVisibility()
+    if not dock then return end
+    local shouldHide = (C_PetBattles and C_PetBattles.IsInBattle()) or (UnitHasVehicleUI and UnitHasVehicleUI("player"))
+        or (Orbit.MountedVisibility and Orbit.MountedVisibility:ShouldHide())
+    currentDockAlpha = shouldHide and 0 or RESTING_ALPHA
+    targetDockAlpha = currentDockAlpha
+    dock:SetAlpha(currentDockAlpha)
 end
 
 function Plugin:ApplySettings()
