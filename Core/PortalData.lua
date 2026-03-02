@@ -228,6 +228,9 @@ PD.HEARTHSTONE_SHARED = {
     { itemID = 210455, name = "Draenic Hologem", type = "toy" },
     { itemID = 212337, name = "Stone of the Hearth", type = "toy" },
     { itemID = 228940, name = "Notorious Thread's Hearthstone", type = "toy" },
+    { itemID = 257736, name = "Lightcalled Hearthstone", type = "toy" },
+    { itemID = 263933, name = "Preyseeker's Hearthstone", type = "toy" },
+    { itemID = 265100, name = "Corewarden's Hearthstone", type = "toy" },
 }
 
 -- Hearthstones with SEPARATE cooldowns (always show individually)
@@ -377,6 +380,7 @@ PD.TOY = {
     { itemID = 152964, name = "Greater Spatial Rift", destination = "Argus" },
     { itemID = 168862, name = "G.E.A.R. Tracking Beacon", destination = "Mechagon" },
     { itemID = 180817, name = "Cypher of Relocation", destination = "Oribos" },
+    { itemID = 253629, name = "Personal Key to the Arcantina", destination = "The Arcantina" },
     
     -- Rings (portal jewelry)
     { itemID = 40586, name = "Band of the Kirin Tor", destination = "Dalaran (Northrend)", type = "item" },

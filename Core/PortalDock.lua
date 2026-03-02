@@ -1,20 +1,11 @@
--- PortalDock.lua
--- Main plugin file: macOS Dock-style portal UI with magnification effect
-
+-- PortalDock.lua: Dock-style portal UI with magnification effect
 local _, addon = ...
 local Scanner = addon.PortalScanner
 local PD = addon.PortalData
 
--- Get Orbit reference (registered globally by Init.lua before dependencies load)
 ---@type Orbit
 local Orbit = Orbit
-if not Orbit then
-    return
-end
-
--- Get Engine reference for Edit Mode integration
 local OrbitEngine = Orbit.Engine
-
 
 -- Cache frequently used globals (performance optimization)
 local math_abs = math.abs
@@ -32,26 +23,31 @@ local InCombatLockdown = InCombatLockdown
 local GetCursorPosition = GetCursorPosition
 
 -- [ PLUGIN REGISTRATION ] -----------------------------------------------------
-
 local SYSTEM_ID = "Orbit_Portal"
 
 local Plugin = Orbit:RegisterPlugin("Portal Dock", SYSTEM_ID, {
     defaults = {
-        -- Appearance
         IconSize = 34,
         Spacing = 3,
         MaxVisible = 9,
         ArcDepth = 10,
-        -- Magnification
         Magnification = true,
         HoverScale = 1.2,
-        -- Filtering
         HideLongCooldowns = true,
     },
-}, Orbit.Constants and Orbit.Constants.PluginGroups and Orbit.Constants.PluginGroups.Misc)
+})
+
+-- [ CONSTANTS ] ---------------------------------------------------------------
+local ANIMATION_SPEED = 6
+local RESTING_ALPHA = 0.0
+local DEFAULT_ARC_DEPTH = 5
+local MIN_ICON_ALPHA = 0.4
+local GCD_THRESHOLD = 2
+local LONG_COOLDOWN_THRESHOLD = 1800
+
+local currentOrientation = "LEFT"
 
 -- [ STATE ] -------------------------------------------------------------------
-
 local dock = nil
 local iconPool = nil
 local visibleIcons = {}
@@ -60,23 +56,10 @@ local isEditModeActive = false
 local scrollOffset = 0
 local isMouseOver = false
 local currentDockAlpha = RESTING_ALPHA
-local RefreshDock  -- Forward declaration for use in OnEnter
-local mythicPlusCache = {}  -- Cache for M+ ratings to survive encounter lockouts
-local pendingRefresh = false  -- Queue refresh for when combat ends
-local lastMagnifiedIndex = nil  -- Sticky magnification: remembers last magnified icon
-
--- [ CONSTANTS ] ---------------------------------------------------------------
-
-local ANIMATION_SPEED = 6 -- Lower = smoother/slower animation (was 12)
-local RESTING_ALPHA = 0.0 -- Dock alpha when not hovered
-local DEFAULT_ARC_DEPTH = 5 -- How far the curve indents (pixels) - subtle curve
-
--- Orientation enum: determines layout direction and arc direction
--- "LEFT" = vertical icons, arc curves right (toward center)
--- "RIGHT" = vertical icons, arc curves left (toward center)
--- "TOP" = horizontal icons, arc curves down (toward center)
--- "BOTTOM" = horizontal icons, arc curves up (toward center)
-local currentOrientation = "LEFT"  -- Default
+local RefreshDock
+local mythicPlusCache = {}
+local pendingRefresh = false
+local lastMagnifiedIndex = nil
 
 -- Detect orientation based on dock position relative to screen center
 local function DetectOrientation()
@@ -230,8 +213,6 @@ local function RequestRefresh()
 end
 
 -- [ DOCK ANIMATION ] ----------------------------------------------------------
-
-local MIN_ICON_ALPHA = 0.4 -- Minimum alpha for icons not being hovered
 
 -- Utility: Lerp (linear interpolation)
 local function Lerp(a, b, t)
@@ -889,8 +870,6 @@ local function ConfigureIcon(icon, data, index)
         end
     end
     
-    -- Only show cooldowns when active (ignore GCD - cooldowns under 2 seconds)
-    local GCD_THRESHOLD = 2  -- Ignore cooldowns shorter than this (GCD is ~1.5s)
     if data.cooldown and data.cooldown > GCD_THRESHOLD then
         -- Calculate correct startTime: current time minus elapsed time (duration - remaining)
         local duration = data.cooldownDuration or data.cooldown
@@ -943,15 +922,12 @@ RefreshDock = function()
     -- Get fresh portal list (filtered - no dividers from scanner)
     local rawList = Scanner:GetOrderedList()
     
-    -- Filter out items with 30+ minute cooldowns if setting is enabled
-    -- Exception: Current Season (SEASONAL_DUNGEON, SEASONAL_RAID) always shows
     local hideLongCooldowns = Plugin:GetSetting(1, "HideLongCooldowns")
     portalList = {}
     for _, item in ipairs(rawList) do
         local cooldownRemaining = item.cooldown or 0
         local isCurrentSeason = item.category == "SEASONAL_DUNGEON" or item.category == "SEASONAL_RAID"
-        -- 30 minutes = 1800 seconds
-        if not hideLongCooldowns or isCurrentSeason or cooldownRemaining < 1800 then
+        if not hideLongCooldowns or isCurrentSeason or cooldownRemaining < LONG_COOLDOWN_THRESHOLD then
             table.insert(portalList, item)
         end
     end
@@ -1342,7 +1318,7 @@ function Plugin:AddSettings(dialog, systemFrame)
         },
     }
     
-    Orbit.Config:Render(dialog, systemFrame, self, schema)
+    OrbitEngine.Config:Render(dialog, systemFrame, self, schema)
 end
 
 -- Export for debugging
