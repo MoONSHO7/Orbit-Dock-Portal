@@ -249,6 +249,7 @@ PD.CLASS = {
     -- Druid
     { spellID = 18960, name = "Teleport: Moonglade", class = "DRUID" },
     { spellID = 193753, name = "Dreamwalk", class = "DRUID" },
+    { spellID = 1238686, name = "Rootwalking", class = "DRUID" },
     
     -- Monk
     { spellID = 126892, name = "Zen Pilgrimage", class = "MONK" },
