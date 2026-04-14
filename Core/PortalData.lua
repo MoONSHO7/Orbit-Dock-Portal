@@ -6,26 +6,25 @@ addon.PortalData = {}
 
 local PD = addon.PortalData
 
--- [ CATEGORY CONFIGURATION ]---------------------------------------------------
-
+-- [ CATEGORY CONFIGURATION ] ------------------------------------------------------------------------
 -- Category order for dock display (priority order)
 PD.CategoryOrder = {
     "HEARTHSTONE",          -- Hearthstones (FIRST - default position)
     "HOUSING",              -- Player Housing teleport
+    "FAVORITE",             -- User-pinned favorites (Shift+RMB)
     "SEASONAL_DUNGEON",     -- Current M+ rotation dungeons
     "SEASONAL_RAID",        -- Current raid tier
     "CLASS",                -- Class-specific (e.g., DK Gate, Monk Zen, Druid Dreamwalk)
-    "MAGE_TELEPORT",        -- Mage self teleports
-    "MAGE_PORTAL",          -- Mage portals for groups
+    "MAGE_TELEPORT",        -- All mage teleports (self + group portals)
+    "RAID",                 -- All raid portals across expansions
+    "MIDNIGHT_DUNGEON",     -- Midnight dungeons
     "TWW_DUNGEON",          -- The War Within dungeons
-    "TWW_RAID",             -- The War Within raids
     "DF_DUNGEON",           -- Dragonflight dungeons
-    "DF_RAID",              -- Dragonflight raids
     "SL_DUNGEON",           -- Shadowlands dungeons
-    "SL_RAID",              -- Shadowlands raids
     "BFA_DUNGEON",          -- Battle for Azeroth dungeons
     "LEGION_DUNGEON",       -- Legion dungeons
     "WOD_DUNGEON",          -- Warlords of Draenor dungeons
+    "WOTLK_DUNGEON",        -- Wrath of the Lich King dungeons
     "MOP_DUNGEON",          -- Mists of Pandaria dungeons
     "CATA_DUNGEON",         -- Cataclysm dungeons
     "CLASSIC_DUNGEON",      -- Classic dungeons
@@ -38,18 +37,18 @@ PD.CategoryNames = {
     SEASONAL_RAID = "Current Raid",
     HEARTHSTONE = "Hearthstone",
     HOUSING = "Player Housing",
+    FAVORITE = "Favorites",
     CLASS = "Class Portals",
     MAGE_TELEPORT = "Mage Teleports",
-    MAGE_PORTAL = "Mage Portals",
+    RAID = "Raids",
+    MIDNIGHT_DUNGEON = "Midnight Dungeons",
     TWW_DUNGEON = "TWW Dungeons",
-    TWW_RAID = "TWW Raids",
     DF_DUNGEON = "DF Dungeons",
-    DF_RAID = "DF Raids",
     SL_DUNGEON = "SL Dungeons",
-    SL_RAID = "SL Raids",
     BFA_DUNGEON = "BfA Dungeons",
     LEGION_DUNGEON = "Legion Dungeons",
     WOD_DUNGEON = "WoD Dungeons",
+    WOTLK_DUNGEON = "WotLK Dungeons",
     MOP_DUNGEON = "MoP Dungeons",
     CATA_DUNGEON = "Cata Dungeons",
     CLASSIC_DUNGEON = "Classic Dungeons",
@@ -57,25 +56,31 @@ PD.CategoryNames = {
     TOY = "Portal Toys",
 }
 
--- [ CURRENT SEASON CONFIGURATION (Update each season!) ]---------------------
-
--- The War Within Season 3 dungeons (M+ rotation)
+-- [ CURRENT SEASON CONFIGURATION (Update each season!) ] --------------------------------------------
+-- Midnight Season 1 dungeons (M+ rotation)
 PD.CURRENT_SEASON_DUNGEONS = {
-    1237215,  -- Eco-Dome Al'dani (new in S3)
-    445417,   -- Ara-Kara, City of Echoes
-    445414,   -- The Dawnbreaker
-    1216786,  -- Operation: Floodgate
-    445444,   -- Priory of the Sacred Flame
-    354465,   -- Halls of Atonement (Shadowlands)
-    367416,   -- Tazavesh, the Veiled Market (Shadowlands)
+    1254572,  -- Path of Devoted Magistry → Magisters' Terrace (Midnight)
+    1254559,  -- Path of Cavernous Depths → Maisara Caverns (Midnight)
+    1254563,  -- Path of the Fractured Core → Nexus-Point Xenas (Midnight)
+    1254400,  -- Path of the Windrunners → Windrunner Spire (Midnight)
+    393273,   -- Path of the Draconic Diploma → Algeth'ar Academy (Dragonflight)
+    1254555,  -- Path of Unyielding Blight → Pit of Saron (Wrath of the Lich King)
+    1254551,  -- Path of Dark Dereliction → Seat of the Triumvirate (Legion)
+    159898,   -- Path of the Skies → Skyreach (Warlords of Draenor)
 }
 
--- Current raid tier (Season 3)
-PD.CURRENT_SEASON_RAIDS = {
-    1239155,  -- Manaforge Omega
+-- Current raid tier (Midnight Season 1) — populate once the raid teleport spellIDs ship.
+PD.CURRENT_SEASON_RAIDS = {}
+
+-- [ DUNGEON PORTALS BY EXPANSION ] ------------------------------------------------------------------
+PD.MIDNIGHT_DUNGEON = {
+    { spellID = 1254572, name = "Magisters' Terrace",  short = "MT",  challengeModeID = 558 },
+    { spellID = 1254559, name = "Maisara Caverns",     short = "MC",  challengeModeID = 560 },
+    { spellID = 1254563, name = "Nexus-Point Xenas",   short = "NPX", challengeModeID = 559 },
+    { spellID = 1254400, name = "Windrunner Spire",    short = "WS",  challengeModeID = 557 },
 }
 
--- [ DUNGEON PORTALS BY EXPANSION ]-------------------------------------------
+PD.MIDNIGHT_RAID = {}
 
 -- The War Within
 PD.TWW_DUNGEON = {
@@ -102,7 +107,7 @@ PD.TWW_RAID = {
 -- Dragonflight
 PD.DF_DUNGEON = {
     { spellID = 393279, name = "The Azure Vault", short = "AV" },
-    { spellID = 393273, name = "Algeth'ar Academy", short = "AA" },
+    { spellID = 393273, name = "Algeth'ar Academy", short = "AA", challengeModeID = 402 },
     { spellID = 393262, name = "The Nokhud Offensive", short = "NO" },
     { spellID = 393256, name = "Ruby Life Pools", short = "RLP" },
     { spellID = 393276, name = "Neltharus", short = "NELT" },
@@ -154,6 +159,7 @@ PD.LEGION_DUNGEON = {
     { spellID = 424163, name = "Darkheart Thicket", short = "DHT" },
     { spellID = 424153, name = "Black Rook Hold", short = "BRH" },
     { spellID = 373262, name = "Karazhan", short = "KARA" },
+    { spellID = 1254551, name = "Seat of the Triumvirate", short = "SotT", challengeModeID = 161 },
 }
 
 -- Warlords of Draenor
@@ -164,8 +170,13 @@ PD.WOD_DUNGEON = {
     { spellID = 159900, name = "Grimrail Depot" },
     { spellID = 159896, name = "Iron Docks" },
     { spellID = 159899, name = "Shadowmoon Burial Grounds" },
-    { spellID = 159898, name = "Skyreach" },
+    { spellID = 159898, name = "Skyreach", short = "SKY", challengeModeID = 239 },
     { spellID = 159902, name = "Upper Blackrock Spire" },
+}
+
+-- Wrath of the Lich King
+PD.WOTLK_DUNGEON = {
+    { spellID = 1254555, name = "Pit of Saron", short = "PoS", challengeModeID = 556 },
 }
 
 -- Mists of Pandaria
@@ -192,8 +203,7 @@ PD.CLASSIC_DUNGEON = {
     { spellID = 131229, name = "Scarlet Monastery" },
 }
 
--- [ HEARTHSTONES ]-----------------------------------------------------------
-
+-- [ HEARTHSTONES ] ----------------------------------------------------------------------------------
 -- Hearthstones that share the main cooldown (will be deduplicated)
 PD.HEARTHSTONE_SHARED = {
     -- Primary Hearthstone
@@ -241,7 +251,7 @@ PD.HEARTHSTONE_UNIQUE = {
     { itemID = 141605, name = "Flight Master's Whistle", type = "item" },
 }
 
--- [ CLASS PORTALS ]-----------------------------------------------------------
+-- [ CLASS PORTALS ] ---------------------------------------------------------------------------------
 PD.CLASS = {
     -- Death Knight
     { spellID = 50977, name = "Death Gate", class = "DEATHKNIGHT" },
@@ -259,7 +269,7 @@ PD.CLASS = {
     { spellID = 556, name = "Astral Recall", class = "SHAMAN" },
 }
 
--- [ MAGE TELEPORTS (Personal) ]-----------------------------------------------
+-- [ MAGE TELEPORTS (Personal) ] ---------------------------------------------------------------------
 PD.MAGE_TELEPORT = {
     -- Alliance
     { spellID = 3561, name = "Teleport: Stormwind", faction = "Alliance" },
@@ -291,10 +301,11 @@ PD.MAGE_TELEPORT = {
     { spellID = 344587, name = "Teleport: Oribos" },
     { spellID = 395277, name = "Teleport: Valdrakken" },
     { spellID = 446540, name = "Teleport: Dornogal" },
+    { spellID = 1259190, name = "Teleport: Silvermoon City" },
     { spellID = 120145, name = "Ancient Teleport: Dalaran" },
 }
 
--- [ MAGE PORTALS (Group) ]-----------------------------------------------------
+-- [ MAGE PORTALS (Group) ] --------------------------------------------------------------------------
 PD.MAGE_PORTAL = {
     -- Alliance
     { spellID = 10059, name = "Portal: Stormwind", faction = "Alliance" },
@@ -326,10 +337,11 @@ PD.MAGE_PORTAL = {
     { spellID = 344597, name = "Portal: Oribos" },
     { spellID = 395289, name = "Portal: Valdrakken" },
     { spellID = 446534, name = "Portal: Dornogal" },
+    { spellID = 1259194, name = "Portal: Silvermoon City" },
     { spellID = 120146, name = "Ancient Portal: Dalaran" },
 }
 
--- [ ENGINEERING PORTALS ]------------------------------------------------------
+-- [ ENGINEERING PORTALS ] ---------------------------------------------------------------------------
 PD.ENGINEER = {
     -- Classic/TBC (Items)
     { itemID = 18986, name = "Ultrasafe Transporter: Gadgetzan", type = "item", reqSkill = 260 },
@@ -361,9 +373,12 @@ PD.ENGINEER = {
     
     -- The War Within (Toy)
     { itemID = 221966, name = "Wormhole Generator: Khaz Algar", type = "toy", reqSkill = 1 },
+    
+    -- Midnight (Toy)
+    { itemID = 248485, name = "Wormhole Generator: Quel'Thalas", type = "toy", reqSkill = 1 },
 }
 
--- [ PORTAL TOYS (Miscellaneous) ]---------------------------------------------
+-- [ PORTAL TOYS (Miscellaneous) ] -------------------------------------------------------------------
 PD.TOY = {
     { itemID = 64457, name = "The Last Relic of Argus", destination = "Random" },
     { itemID = 95567, name = "Kirin Tor Beacon", destination = "Isle of Thunder", faction = "Alliance" },
@@ -406,7 +421,7 @@ PD.TOY = {
     { itemID = 52251, name = "Jaina's Locket", destination = "Dalaran (Northrend)", type = "item" },
 }
 
--- [ HELPER: Check if a spell is in current season ]---------------------------
+-- [ HELPER: Check if a spell is in current season ] -------------------------------------------------
 function PD:IsCurrentSeasonDungeon(spellID)
     for _, id in ipairs(self.CURRENT_SEASON_DUNGEONS) do
         if id == spellID then return true end

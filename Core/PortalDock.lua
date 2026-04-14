@@ -1,4 +1,4 @@
--- PortalDock.lua: Dock-style portal UI with magnification effect
+-- PortalDock.lua: Dock-style portal UI with edge-fade falloff and Canvas Mode components.
 local _, addon = ...
 local Scanner = addon.PortalScanner
 local PD = addon.PortalData
@@ -12,9 +12,6 @@ local math_abs = math.abs
 local math_min = math.min
 local math_max = math.max
 local math_floor = math.floor
-local math_ceil = math.ceil
-local math_sin = math.sin
-local math_pi = math.pi
 local ipairs = ipairs
 local pairs = pairs
 local wipe = wipe
@@ -22,7 +19,7 @@ local GetTime = GetTime
 local InCombatLockdown = InCombatLockdown
 local GetCursorPosition = GetCursorPosition
 
--- [ PLUGIN REGISTRATION ] -----------------------------------------------------
+-- [ PLUGIN REGISTRATION ] ---------------------------------------------------------------------------
 local SYSTEM_ID = "Orbit_Portal"
 
 local Plugin = Orbit:RegisterPlugin("Portal Dock", SYSTEM_ID, {
@@ -30,24 +27,88 @@ local Plugin = Orbit:RegisterPlugin("Portal Dock", SYSTEM_ID, {
         IconSize = 34,
         Spacing = 3,
         MaxVisible = 9,
-        ArcDepth = 10,
-        Magnification = true,
-        HoverScale = 1.2,
         HideLongCooldowns = true,
+        FadeEffect = 20,  -- 0 = off (no fade); increases toward sharper edge falloff.
+        Compactness = 0,
+        Favorites = {},
+        ComponentPositions = {
+            DungeonScore  = { anchorX = "CENTER", anchorY = "BOTTOM", offsetX = 0, offsetY = -2, justifyH = "CENTER" },
+            DungeonShort  = { anchorX = "CENTER", anchorY = "TOP",    offsetX = 0, offsetY = 2,  justifyH = "CENTER" },
+            FavouriteStar = { anchorX = "RIGHT",  anchorY = "TOP",    offsetX = 1, offsetY = 1,  justifyH = "RIGHT"  },
+            Timer         = { anchorX = "CENTER", anchorY = "CENTER", offsetX = 0, offsetY = 0,  justifyH = "CENTER" },
+        },
+        DisabledComponents = { "Timer", "DungeonShort" },
     },
 })
 
--- [ CONSTANTS ] ---------------------------------------------------------------
-local ANIMATION_SPEED = 6
-local RESTING_ALPHA = 0.0
-local DEFAULT_ARC_DEPTH = 5
-local MIN_ICON_ALPHA = 0.4
-local GCD_THRESHOLD = 2
-local LONG_COOLDOWN_THRESHOLD = 1800
+-- Enable Canvas Mode: users double-click the dock to reposition DungeonScore + FavouriteStar.
+Plugin.canvasMode = true
+
+-- [ FAVORITES ] -------------------------------------------------------------------------------------
+local function GetFavKey(data)
+    if not data then return nil end
+    return data.spellID or data.itemID or data.name
+end
+
+local function IsFavorite(data)
+    local key = GetFavKey(data)
+    if not key then return false end
+    local favs = Plugin:GetSetting(1, "Favorites") or {}
+    return favs[tostring(key)] == true
+end
+
+local function ToggleFavorite(data)
+    local key = GetFavKey(data)
+    if not key then return end
+    local favs = Plugin:GetSetting(1, "Favorites") or {}
+    local k = tostring(key)
+    favs[k] = (not favs[k]) or nil
+    Plugin:SetSetting(1, "Favorites", favs)
+end
+
+-- [ CANVAS COMPONENTS ] -----------------------------------------------------------------------------
+-- Canvas Mode per-icon apply lives in PortalCanvas.lua. This thin wrapper bridges the plugin's
+-- favourites helper (captured at dispatch time so the module stays decoupled from favourites).
+local ApplyCanvasComponents = addon.PortalCanvas.ApplyIconComponents
+local GetGlobalFontPath     = addon.PortalCanvas.GetGlobalFontPath
+
+local function ApplyIconCanvasComponents(icon, data, mythicPlusCache)
+    ApplyCanvasComponents(Plugin, icon, data, mythicPlusCache, IsFavorite(data))
+end
+
+-- [ CONSTANTS ] -------------------------------------------------------------------------------------
+local RESTING_ALPHA            = 1.0
+local FADE_DEFAULT             = 20
+local GCD_THRESHOLD            = 2
+local LONG_COOLDOWN_THRESHOLD  = 1800
+
+local ICON_TEXCOORD_MIN        = 0.08
+local ICON_TEXCOORD_MAX        = 0.92
+local ICON_BORDER_SCALE        = 1.1
+
+local STAR_SIZE                = 12
+local STAR_OFFSET_X            = 1
+local STAR_OFFSET_Y            = 1
+local STAR_SHADOW_SIZE         = 22
+local STAR_SHADOW_OFFSET_X     = -4
+local STAR_SHADOW_OFFSET_Y     = -6
+local STAR_SHADOW_ALPHA        = 0.95
+local STAR_ATLAS               = "transmog-icon-favorite"
+local STAR_SHADOW_ATLAS        = "PetJournal-BattleSlot-Shadow"
+
+local HIGHLIGHT_COLOR_R        = 1.0
+local HIGHLIGHT_COLOR_G        = 0.95
+local HIGHLIGHT_COLOR_B        = 0.70
+local HIGHLIGHT_COLOR_A        = 0.35
+
+local QUESTIONMARK_ICON        = "Interface\\Icons\\INV_Misc_QuestionMark"
+local CIRCULAR_MASK_PATH       = "Interface\\CHARACTERFRAME\\TempPortraitAlphaMask"
+
+local CLAMP_VISIBLE_MARGIN     = 30
 
 local currentOrientation = "LEFT"
 
--- [ STATE ] -------------------------------------------------------------------
+-- [ STATE ] -----------------------------------------------------------------------------------------
 local dock = nil
 local iconPool = nil
 local visibleIcons = {}
@@ -55,11 +116,9 @@ local portalList = {}
 local isEditModeActive = false
 local scrollOffset = 0
 local isMouseOver = false
-local currentDockAlpha = RESTING_ALPHA
 local RefreshDock
 local mythicPlusCache = {}
 local pendingRefresh = false
-local lastMagnifiedIndex = nil
 
 -- Detect orientation based on dock position relative to screen center
 local function DetectOrientation()
@@ -95,21 +154,11 @@ local function IsHorizontal()
     return currentOrientation == "TOP" or currentOrientation == "BOTTOM"
 end
 
--- DRY: Normalize maxVisible to be odd and within bounds
-local function NormalizeMaxVisible(maxVisible, totalItems)
-    if maxVisible % 2 == 0 then
-        maxVisible = maxVisible - 1
-    end
-    return math_max(3, math_min(maxVisible, totalItems or maxVisible))
-end
-
--- DRY: Calculate arc offset for a given position
-local function CalculateArcOffset(displayIndex, maxVisible, iconSize, arcDepth)
-    local normalizedPos = displayIndex / (maxVisible - 1)
-    local curveValue = math_sin(normalizedPos * math_pi)
-    local edgeOffset = -iconSize * 0.8
-    return edgeOffset + (arcDepth - edgeOffset) * curveValue
-end
+-- Layout math lives in PortalLayout.lua. Cache the hot helpers as upvalues.
+local NormalizeMaxVisible  = addon.PortalLayout.NormalizeMaxVisible
+local CalculatePosition    = addon.PortalLayout.CalculatePosition
+local CalculatePerpExtent  = addon.PortalLayout.CalculatePerpExtent
+local CalculateAxialExtent = addon.PortalLayout.CalculateAxialExtent
 
 -- DRY: Format duration in seconds to readable string
 local function FormatDuration(seconds)
@@ -128,35 +177,23 @@ end
 -- DRY: Position icon based on current orientation (CENTER-ANCHORED)
 -- pos = the center position along the layout axis (from dock edge)
 -- Icons are anchored at their CENTER so scaling expands equally in all directions
-local function PositionIconForOrientation(icon, dockFrame, arcOffset, centerPos)
+-- Icons anchor to the dock's inside edge so the dock hugs the icon column/row tightly.
+-- Axis line is inset by iconSize/2 from the anchored edge; bulge pushes toward screen center.
+local function PositionIconForOrientation(icon, dockFrame, arcOffset, centerPos, iconSize)
     icon:ClearAllPoints()
+    local halfIcon = iconSize / 2
     if currentOrientation == "LEFT" then
-        -- Vertical layout, icons go down from top, arc curves right
-        icon:SetPoint("CENTER", dockFrame, "TOPLEFT", arcOffset, -centerPos)
+        icon:SetPoint("CENTER", dockFrame, "TOPLEFT", halfIcon + arcOffset, -centerPos)
     elseif currentOrientation == "RIGHT" then
-        -- Vertical layout, icons go down from top, arc curves left
-        icon:SetPoint("CENTER", dockFrame, "TOPRIGHT", -arcOffset, -centerPos)
+        icon:SetPoint("CENTER", dockFrame, "TOPRIGHT", -halfIcon - arcOffset, -centerPos)
     elseif currentOrientation == "TOP" then
-        -- Horizontal layout, icons go right from left, arc curves down
-        icon:SetPoint("CENTER", dockFrame, "TOPLEFT", centerPos, -arcOffset)
+        icon:SetPoint("CENTER", dockFrame, "TOPLEFT", centerPos, -halfIcon - arcOffset)
     else -- BOTTOM
-        -- Horizontal layout, icons go right from left, arc curves up
-        icon:SetPoint("CENTER", dockFrame, "BOTTOMLEFT", centerPos, arcOffset)
+        icon:SetPoint("CENTER", dockFrame, "BOTTOMLEFT", centerPos, halfIcon + arcOffset)
     end
 end
 
--- [ ANIMATION STATE ] ---------------------------------------------------------
-
-local animationFrame = nil
-local targetDockAlpha = RESTING_ALPHA
-local currentDockAlpha = RESTING_ALPHA
-
--- Magnification state
-local magnificationOffset = 0      -- Virtual scroll offset caused by magnification
-local targetMagOffset = 0          -- Target magnification offset for smooth animation
-
--- [ COMBAT AND ENCOUNTER HANDLING ] -------------------------------------------
-
+-- [ COMBAT AND ENCOUNTER HANDLING ] -----------------------------------------------------------------
 local function CanInteract()
     -- Disable during combat lockdown OR during boss encounters (even if dead)
     if InCombatLockdown() then return false end
@@ -184,11 +221,6 @@ local function UpdateCombatState()
             -- It will be refreshed when combat ends
         end
         
-        -- Stop any running animations
-        if animationFrame then
-            animationFrame:SetScript("OnUpdate", nil)
-        end
-        
         isMouseOver = false
     else
         -- COMBAT ENDED: Restore dock (safe to call Show() when not in combat)
@@ -212,295 +244,16 @@ local function RequestRefresh()
     end
 end
 
--- [ DOCK ANIMATION ] ----------------------------------------------------------
+local EdgeAlphaForIndex = addon.PortalLayout.EdgeAlphaForIndex
 
--- Utility: Lerp (linear interpolation)
-local function Lerp(a, b, t)
-    return a + (b - a) * t
-end
-
--- Easing function for smooth fade (quadratic)
-local function EaseInQuad(t)
-    return t * t
-end
-
--- Calculate icon scale and alpha targets based on cursor position
-local function CalculateIconTargets()
-    if not dock or not isMouseOver then return end
-    
-    local magnificationEnabled = Plugin:GetSetting(1, "Magnification")
-    -- Treat nil as true (default enabled)
-    if magnificationEnabled == false then
-        -- Magnification explicitly disabled, reset all targets
-        for _, icon in ipairs(visibleIcons) do
-            icon.targetScale = 1
-            icon.targetAlpha = 1
-        end
-        return
-    end
-    
-    -- Cache settings once
-    local iconSize = Plugin:GetSetting(1, "IconSize") or 30
-    local spacing = Plugin:GetSetting(1, "Spacing") or 5
-    local hoverScale = Plugin:GetSetting(1, "HoverScale") or 1.5
-    
-    -- Get cursor position in DOCK-LOCAL coordinates
-    -- stableCenterPos is stored as offset from dock edge, so we need cursor relative to dock
-    local cursorX, cursorY = GetCursorPosition()
-    local uiScale = dock:GetEffectiveScale()
-    cursorX = cursorX / uiScale
-    cursorY = cursorY / uiScale
-    
-    -- Convert to dock-local coordinates
-    local isHoriz = IsHorizontal()
-    local dockLeft, dockBottom = dock:GetLeft(), dock:GetBottom()
-    local dockTop = dock:GetTop()
-    
-    if not dockLeft or not dockTop then return end
-    
-    -- For vertical layouts (LEFT/RIGHT), measure from dock top going down
-    -- For horizontal layouts (TOP/BOTTOM), measure from dock left going right
-    local cursorPos
-    if isHoriz then
-        cursorPos = cursorX - dockLeft  -- How far right from dock's left edge
-    else
-        cursorPos = dockTop - cursorY  -- How far down from dock's top edge
-    end
-    
-    local closestDistance = 1e9  -- Use large number instead of math.huge
-    local closestIndex = 0
-    local totalVisible = #visibleIcons
-    
-    -- Find the icon closest to cursor using STABLE center positions
-    -- Since icons are center-anchored, their centers don't move when scaling
-    for i, icon in ipairs(visibleIcons) do
-        -- Use the stored stable center position (set during layout)
-        local iconCenter = icon.stableCenterPos or 0
-        
-        -- Distance from cursor to this icon's center
-        local distFromCenter = math_abs(cursorPos - iconCenter)
-        
-        -- Simple distance check - closest icon wins
-        -- This ensures we always have a target even in gaps (spacing)
-        if distFromCenter < closestDistance then
-            closestDistance = distFromCenter
-            closestIndex = i
-        end
-        
-        -- Default to no magnification
-        icon.targetScale = 1
-        icon.targetAlpha = 1
-    end
-    
-    -- The center slot where hearthstone appears by default
-    local centerSlotIndex = math_floor(totalVisible / 2) + 1
-    
-    -- Determine what to magnify:
-    -- STICKY MAGNIFICATION: Keep the last magnified icon until cursor is over a different icon
-    -- ALL icons can now magnify (no edge restriction)
-    local indexToMagnify = nil
-    
-    if closestIndex > 0 then
-        -- Cursor is over an icon - update sticky state
-        indexToMagnify = closestIndex
-        lastMagnifiedIndex = closestIndex
-    elseif lastMagnifiedIndex and lastMagnifiedIndex > 0 and lastMagnifiedIndex <= totalVisible then
-        -- Cursor moved to gap - keep last magnified icon sticky
-        indexToMagnify = lastMagnifiedIndex
-    else
-        -- No previous state - fallback to center
-        indexToMagnify = centerSlotIndex
-        lastMagnifiedIndex = centerSlotIndex
-    end
-    
-    if indexToMagnify and indexToMagnify > 0 and indexToMagnify <= totalVisible then
-        visibleIcons[indexToMagnify].targetScale = hoverScale
-    end
-    
-    -- No magnification offset - icons scale in place without shifting
-    targetMagOffset = 0
-end
+-- Mouse hover hooks: kept as named entry points but the dock is always fully opaque now.
+-- All per-icon position + alpha work happens in RefreshDock; nothing needs to tick per frame.
+local function FadeDockIn()  if dock then dock:SetAlpha(1) end end
+local function FadeDockOut() if dock then dock:SetAlpha(1) end end
 
 
 
--- Animation for dock alpha, icon scale/alpha, and fisheye layout
-local function OnAnimationUpdate(self, elapsed)
-    if not dock or InCombatLockdown() then
-        self:SetScript("OnUpdate", nil)
-        return
-    end
-    
-    local t = math_min(elapsed * ANIMATION_SPEED, 1)
-    local needsUpdate = false
-    
-    -- Animate dock alpha
-    if math_abs(currentDockAlpha - targetDockAlpha) > 0.001 then
-        currentDockAlpha = Lerp(currentDockAlpha, targetDockAlpha, t)
-        dock:SetAlpha(currentDockAlpha)
-        needsUpdate = true
-    end
-    
-    -- Recalculate icon scale/alpha targets if hovering
-    if isMouseOver then
-        CalculateIconTargets()
-    end
-    
-    -- Animate magnification offset
-    if math_abs(magnificationOffset - targetMagOffset) > 0.1 then
-        magnificationOffset = Lerp(magnificationOffset, targetMagOffset, t)
-        needsUpdate = true
-    else
-        magnificationOffset = targetMagOffset
-    end
-    
-    -- Cache settings ONCE per frame (not per-icon)
-    local iconSize = Plugin:GetSetting(1, "IconSize") or 30
-    local spacing = Plugin:GetSetting(1, "Spacing") or 5
-    local maxVisible = Plugin:GetSetting(1, "MaxVisible") or 9
-    local arcDepth = Plugin:GetSetting(1, "ArcDepth") or DEFAULT_ARC_DEPTH
-    maxVisible = NormalizeMaxVisible(maxVisible, #visibleIcons)
-    
-    -- Animate each icon's scale and alpha, then reposition
-    -- DYNAMIC POSITIONING: Icons push neighbors apart based on current scale
-    local runningPos = 0  -- Running position along layout axis
-    
-    for _, icon in ipairs(visibleIcons) do
-        local targetScale = icon.targetScale or 1
-        local targetAlpha = icon.targetAlpha or 1
-        local currentScale = icon.currentScale or 1
-        local currentAlpha = icon.currentAlpha or 1
-        
-        -- Animate scale - INSTANT/SNAPPY mode to prevent bounce
-        -- Icons snap to target scale immediately instead of lerping
-        if icon.currentScale ~= targetScale then
-            icon.currentScale = targetScale
-            needsUpdate = true
-        end
-        
-        -- Animate alpha
-        -- EDGE FADING LOGIC:
-        -- Determine distance from dock center (normalized 0 to 1)
-        -- 0 = center, 1 = edge of visible area
-        local maxVisible = Plugin:GetSetting(1, "MaxVisible") or 11
-        maxVisible = NormalizeMaxVisible(maxVisible, #visibleIcons)
-        
-        -- visualCenterIndex is the middle index (e.g. 3 for 5 visible)
-        local visualCenterIndex = (maxVisible + 1) / 2
-        
-        -- Use icon.iconIndex (original display index 0..max-1) to calculate distance
-        -- +1 to make it 1-based for math
-        local distFromVisualCenter = math_abs((icon.iconIndex + 1) - visualCenterIndex)
-        
-        -- Normalized distance: 0 at center, 1.0 at the edge items
-        -- We divide by (maxVisible/2) roughly to get range
-        local normDist = distFromVisualCenter / (maxVisible * 0.5)
-        
-        -- Clamp to 0-1
-        normDist = math_max(0, math_min(1, normDist))
-        
-        -- Calculate edge alpha: 1.0 at center, fades to 0.4 at edges
-        -- Power of 2 makes it fade faster at edges (EaseInQuad style)
-        local edgeAlpha = 1.0 - (math.pow(normDist, 2.5) * 0.6) -- Valid range: 1.0 down to ~0.4
-        
-        -- Combine with targetAlpha (from hover interaction, usually 1)
-        local finalTargetAlpha = targetAlpha * edgeAlpha
-        
-        if math_abs(currentAlpha - finalTargetAlpha) > 0.001 then
-            currentAlpha = Lerp(currentAlpha, finalTargetAlpha, t)
-            icon.currentAlpha = currentAlpha
-            needsUpdate = true
-        else
-            icon.currentAlpha = finalTargetAlpha
-        end
-        
-        -- Apply alpha
-        icon:SetAlpha(icon.currentAlpha)
-        
-        -- Calculate arc offset using cached values
-        local arcOffset = CalculateArcOffset(icon.iconIndex, maxVisible, iconSize, arcDepth)
-        
-        -- MAGNIFICATION BONUS: Push magnified icons toward screen center
-        -- The more magnified, the more it bulges outward from the edge
-        local magBonus = (icon.currentScale - 1) * iconSize * 0.8
-        arcOffset = arcOffset + magBonus
-        
-        -- Apply scale by RESIZING the icon (not SetScale, which causes coordinate issues)
-        local scaledSize = iconSize * icon.currentScale
-        icon:SetSize(scaledSize, scaledSize)
-        
-        -- Also resize the border to match the scaled icon
-        if icon.border then
-            local borderSize = scaledSize * 1.1
-            icon.border:SetSize(borderSize, borderSize)
-        end
-        
-        -- Scale the cooldown text to match magnification
-        if icon.cooldownText and icon.cooldownTextFont and icon.cooldownTextBaseSize then
-            local scaledFontSize = icon.cooldownTextBaseSize * icon.currentScale
-            icon.cooldownText:SetFont(icon.cooldownTextFont, scaledFontSize, icon.cooldownTextFlags)
-        end
-        
-        -- DYNAMIC POSITION: Center of this icon is at runningPos + half its scaled size
-        local dynamicCenterPos = runningPos + (scaledSize / 2)
-        
-        -- Position icon at its DYNAMIC center (pushes neighbors apart)
-        PositionIconForOrientation(icon, dock, arcOffset, dynamicCenterPos)
-        
-        -- Advance running position for next icon
-        runningPos = runningPos + scaledSize + spacing
-    end
-    
-    if not needsUpdate and not isMouseOver then
-        self:SetScript("OnUpdate", nil)
-    end
-end
-
--- Start the animation loop
-local function StartAnimation()
-    if not animationFrame then
-        animationFrame = CreateFrame("Frame")
-    end
-    animationFrame:SetScript("OnUpdate", OnAnimationUpdate)
-end
-
--- Reset icon alphas (but NOT scales - keep magnification during fade out)
-local function ResetIconAlphas()
-    for _, icon in ipairs(visibleIcons) do
-        icon.targetAlpha = 1
-    end
-    targetMagOffset = 0
-    -- Note: We intentionally do NOT reset targetScale or lastMagnifiedIndex here
-    -- so magnification persists during fade out
-end
-
--- Full reset (only called when dock is fully hidden or on refresh)
-local function FullResetIconTargets()
-    for _, icon in ipairs(visibleIcons) do
-        icon.targetScale = 1
-        icon.targetAlpha = 1
-    end
-    targetMagOffset = 0
-    lastMagnifiedIndex = nil
-end
-
--- Fade dock when mouse enters/leaves
-local function FadeDockIn()
-    targetDockAlpha = 1
-    StartAnimation()
-end
-
-local function FadeDockOut()
-    if not InCombatLockdown() then
-        targetDockAlpha = RESTING_ALPHA
-        -- Don't reset scales - keep magnification during fade out
-        StartAnimation()
-    end
-end
-
-
-
--- [ ICON CREATION ] -----------------------------------------------------------
-
+-- [ ICON CREATION ] ---------------------------------------------------------------------------------
 local function CreatePortalIcon()
     local icon = CreateFrame("Button", nil, dock, "SecureActionButtonTemplate")
     icon:RegisterForClicks("AnyUp", "AnyDown")
@@ -509,12 +262,23 @@ local function CreatePortalIcon()
     -- Circular mask for round icons
     icon.mask = icon:CreateMaskTexture()
     icon.mask:SetAllPoints()
-    icon.mask:SetTexture("Interface\\CHARACTERFRAME\\TempPortraitAlphaMask", "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+    icon.mask:SetTexture(CIRCULAR_MASK_PATH, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
     
+    -- Circular glossy mouseover highlight. Placed on ARTWORK sublevel 7 so it sits
+    -- above the icon texture but below the OVERLAY-layer border ring. Toggled via
+    -- the existing OnEnter/OnLeave scripts.
+    icon.highlight = icon:CreateTexture(nil, "ARTWORK", nil, 7)
+    icon.highlight:SetAllPoints()
+    icon.highlight:SetTexture("Interface\\Buttons\\WHITE8x8")
+    icon.highlight:SetVertexColor(HIGHLIGHT_COLOR_R, HIGHLIGHT_COLOR_G, HIGHLIGHT_COLOR_B, HIGHLIGHT_COLOR_A)
+    icon.highlight:SetBlendMode("ADD")
+    icon.highlight:AddMaskTexture(icon.mask)
+    icon.highlight:Hide()
+
     -- Icon texture (masked to be circular)
     icon.texture = icon:CreateTexture(nil, "ARTWORK")
     icon.texture:SetAllPoints()
-    icon.texture:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    icon.texture:SetTexCoord(ICON_TEXCOORD_MIN, ICON_TEXCOORD_MAX, ICON_TEXCOORD_MIN, ICON_TEXCOORD_MAX)
     icon.texture:AddMaskTexture(icon.mask)
     
     -- Cooldown frame
@@ -531,7 +295,7 @@ local function CreatePortalIcon()
     -- This ensures the mask is always available and properly sized
     icon.cooldownMask = icon.cooldown:CreateMaskTexture()
     icon.cooldownMask:SetAllPoints(icon.cooldown)
-    icon.cooldownMask:SetTexture("Interface\\CHARACTERFRAME\\TempPortraitAlphaMask", "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+    icon.cooldownMask:SetTexture(CIRCULAR_MASK_PATH, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
     
     -- Function to apply mask to all cooldown textures
     local function ApplyCircularMaskToCooldown(cooldown, mask)
@@ -576,6 +340,28 @@ local function CreatePortalIcon()
         end
     end
     
+    -- Favourite Star (Canvas Mode component) + soft shadow backdrop
+    icon.FavouriteStarShadow = icon:CreateTexture(nil, "OVERLAY", nil, 5)
+    icon.FavouriteStarShadow:SetAtlas(STAR_SHADOW_ATLAS)
+    icon.FavouriteStarShadow:SetVertexColor(0, 0, 0, STAR_SHADOW_ALPHA)
+    icon.FavouriteStarShadow:SetSize(STAR_SHADOW_SIZE, STAR_SHADOW_SIZE)
+    icon.FavouriteStarShadow:Hide()
+
+    icon.FavouriteStar = icon:CreateTexture(nil, "OVERLAY", nil, 7)
+    icon.FavouriteStar:SetAtlas(STAR_ATLAS)
+    icon.FavouriteStar:SetSize(STAR_SIZE, STAR_SIZE)
+    icon.FavouriteStar:Hide()
+
+    -- Dungeon Score (Canvas Mode component) — rendered above icon layer so it sits on top of the border.
+    icon.DungeonScoreOverlay = CreateFrame("Frame", nil, icon)
+    icon.DungeonScoreOverlay:SetAllPoints()
+    icon.DungeonScoreOverlay:SetFrameLevel(icon:GetFrameLevel() + (Orbit.Constants.Levels and Orbit.Constants.Levels.IconOverlay or 5))
+    icon.DungeonScore = icon.DungeonScoreOverlay:CreateFontString(nil, "OVERLAY")
+    icon.DungeonScore:Hide()
+
+    icon.DungeonShort = icon.DungeonScoreOverlay:CreateFontString(nil, "OVERLAY")
+    icon.DungeonShort:Hide()
+
     -- Circular border using talent tree style ring
     icon.border = icon:CreateTexture(nil, "OVERLAY")
     icon.border:SetPoint("CENTER")
@@ -583,9 +369,20 @@ local function CreatePortalIcon()
     -- Border will use UseAtlasSize for proper dimensions
     
     -- PreClick handler for random hearthstone - picks a new random one each click
-    icon:SetScript("PreClick", function(self)
+    icon:SetScript("PreClick", function(self, button)
+        -- Shift+Right-click: toggle favorite (non-secure, no type2 attribute set)
+        if button == "RightButton" and IsShiftKeyDown() then
+            local data = self.portalData
+            if data then
+                ToggleFavorite(data)
+                RequestRefresh()
+            end
+            return
+        end
+        -- Random hearthstone re-roll: combat lockdown blocks SetAttribute on secure
+        -- buttons, so skip the re-roll in combat and let the last-selected stone fire.
         local data = self.portalData
-        if data and data.type == "random_hearthstone" and data.availableHearthstones then
+        if data and data.type == "random_hearthstone" and data.availableHearthstones and not InCombatLockdown() then
             local available = data.availableHearthstones
             if #available > 0 then
                 local randomIndex = math.random(1, #available)
@@ -610,26 +407,7 @@ local function CreatePortalIcon()
     
     -- Scripts
     icon:SetScript("OnEnter", function(self)
-        -- On FIRST entry (when dock was not already hovered), calculate scroll position from cursor Y
-        if not isMouseOver and dock then
-            local maxVisible = Plugin:GetSetting(1, "MaxVisible") or 11
-            local totalItems = #portalList
-            
-            if totalItems > 0 then
-                maxVisible = NormalizeMaxVisible(maxVisible, totalItems)
-                
-                -- Center slot is at maxVisible/2 (e.g., 5 for maxVisible=11)
-                local centerSlot = math.floor(maxVisible / 2)
-                
-                -- Set scrollOffset so item 1 (Hearthstone) appears at centerSlot
-                scrollOffset = (totalItems - centerSlot) % totalItems
-                
-                if RefreshDock then
-                    RefreshDock()
-                end
-            end
-        end
-        
+        if self.highlight then self.highlight:Show() end
         isMouseOver = true
         FadeDockIn()
         
@@ -772,21 +550,11 @@ local function CreatePortalIcon()
     
     icon:SetScript("OnLeave", function(self)
         GameTooltip:Hide()
-        
+        if self.highlight then self.highlight:Hide() end
+
         -- Check if mouse left the dock entirely (not just moved to another icon)
         if dock and not dock:IsMouseOver() then
             isMouseOver = false
-            -- Reset scrollOffset to center the first item (Hearthstone) on next hover
-            local maxVisible = Plugin:GetSetting(1, "MaxVisible") or 11
-            local totalItems = #portalList
-            if totalItems > 0 then
-                maxVisible = NormalizeMaxVisible(maxVisible, totalItems)
-                local centerSlot = math.floor(maxVisible / 2)
-                scrollOffset = (totalItems - centerSlot) % totalItems
-            else
-                scrollOffset = 0
-            end
-            FullResetIconTargets()
             FadeDockOut()
         end
     end)
@@ -796,18 +564,17 @@ end
 
 
 
--- [ ICON CONFIGURATION ] ------------------------------------------------------
-
+-- [ ICON CONFIGURATION ] ----------------------------------------------------------------------------
 local function ConfigureIcon(icon, data, index)
     icon.portalData = data
     icon.iconIndex = index
     icon.type = data.type
     
-    local iconSize = Plugin:GetSetting(1, "IconSize") or 36
+    local iconSize = Plugin:GetSetting(1, "IconSize")
     icon:SetSize(iconSize, iconSize)
     
     -- Size the border to match icon size (we'll scale it after setting atlas)
-    local borderSize = iconSize * 1.1  -- Slightly larger than icon for ring effect
+    local borderSize = iconSize * ICON_BORDER_SCALE  -- Slightly larger than icon for ring effect
     
     -- Set border atlas based on category
     local category = data.category
@@ -819,7 +586,9 @@ local function ConfigureIcon(icon, data, index)
         icon.border:SetAtlas("talents-node-circle-gray", false)
     end
     icon.border:SetSize(borderSize, borderSize)
-    
+
+    -- FavouriteStar + DungeonScore positioning/visibility are driven by ApplyCanvasComponents.
+
     if data.iconAtlas then
         -- Use atlas for special icons like housing
         icon.texture:SetAtlas(data.iconAtlas)
@@ -897,17 +666,26 @@ local function ConfigureIcon(icon, data, index)
         icon.texture:SetDesaturated(false)
     end
     
-    -- Initialize animation state
-    icon.currentScale = 1
-    icon.currentAlpha = 1
-    icon.targetScale = 1
-    icon.targetAlpha = 1
-    icon:SetAlpha(1)
+    -- Snap alpha: edit mode forces alpha 1 so the user can see their layout; otherwise
+    -- use the edge-fade target so recycled pool icons don't pop-in on scroll.
+    local targetAlpha
+    if isEditModeActive then
+        targetAlpha = 1
+    else
+        local fadeAmount = Plugin:GetSetting(1, "FadeEffect")
+        -- Legacy boolean values: true = classic cosine (20), false/nil = off (0).
+        if fadeAmount == true then fadeAmount = FADE_DEFAULT
+        elseif fadeAmount == false then fadeAmount = 0 end
+        local maxVisibleSetting = Plugin:GetSetting(1, "MaxVisible")
+        local normMaxVisible = NormalizeMaxVisible(maxVisibleSetting, #portalList)
+        targetAlpha = EdgeAlphaForIndex(index, normMaxVisible, fadeAmount)
+    end
+    icon.currentAlpha = targetAlpha
+    icon:SetAlpha(targetAlpha)
     icon:Show()
 end
 
--- [ DOCK LAYOUT ] -------------------------------------------------------------
-
+-- [ DOCK LAYOUT ] -----------------------------------------------------------------------------------
 -- Assign to forward-declared variable so OnEnter can call it
 RefreshDock = function()
     if not dock or not CanInteract() then return end
@@ -922,15 +700,38 @@ RefreshDock = function()
     -- Get fresh portal list (filtered - no dividers from scanner)
     local rawList = Scanner:GetOrderedList()
     
+    -- Favorites cluster via a *display group* so item.category keeps its real value.
+    -- This preserves seasonal border art + dungeon-score rendering when a seasonal
+    -- dungeon is favorited.
+    for _, item in ipairs(rawList) do
+        item.displayGroup = IsFavorite(item) and "FAVORITE" or item.category
+    end
+
     local hideLongCooldowns = Plugin:GetSetting(1, "HideLongCooldowns")
+    local enabledCategories = Plugin:GetSetting(1, "EnabledCategories") or {}
     portalList = {}
     for _, item in ipairs(rawList) do
         local cooldownRemaining = item.cooldown or 0
         local isCurrentSeason = item.category == "SEASONAL_DUNGEON" or item.category == "SEASONAL_RAID"
-        if not hideLongCooldowns or isCurrentSeason or cooldownRemaining < LONG_COOLDOWN_THRESHOLD then
+        local cooldownPass = not hideLongCooldowns or isCurrentSeason or cooldownRemaining < LONG_COOLDOWN_THRESHOLD
+        -- Favorites always show. Other items pass when their real category is enabled.
+        local categoryPass = item.displayGroup == "FAVORITE" or enabledCategories[item.category] ~= false
+        if cooldownPass and categoryPass then
             table.insert(portalList, item)
         end
     end
+
+    -- Sort by CategoryOrder priority using displayGroup (clusters favorites together).
+    local catPriority = {}
+    for i, cat in ipairs(PD.CategoryOrder) do catPriority[cat] = i end
+    local orderIndex = {}
+    for i, item in ipairs(portalList) do orderIndex[item] = i end
+    table.sort(portalList, function(a, b)
+        local pa = catPriority[a.displayGroup] or 999
+        local pb = catPriority[b.displayGroup] or 999
+        if pa ~= pb then return pa < pb end
+        return orderIndex[a] < orderIndex[b]
+    end)
     
     local totalItems = #portalList
     
@@ -939,9 +740,9 @@ RefreshDock = function()
         return
     end
     
-    local iconSize = Plugin:GetSetting(1, "IconSize") or 36
-    local spacing = Plugin:GetSetting(1, "Spacing") or 4
-    local maxVisible = Plugin:GetSetting(1, "MaxVisible") or 11
+    local iconSize = Plugin:GetSetting(1, "IconSize")
+    local spacing = Plugin:GetSetting(1, "Spacing")
+    local maxVisible = Plugin:GetSetting(1, "MaxVisible")
     
     -- Detect and update orientation based on dock position
     currentOrientation = DetectOrientation()
@@ -949,61 +750,40 @@ RefreshDock = function()
     -- Normalize maxVisible using helper
     maxVisible = NormalizeMaxVisible(maxVisible, totalItems)
     
-    -- Show exactly maxVisible icons (equal above and below center)
-    local currentPos = 0  -- Position along the layout direction
+    local compactness = Plugin:GetSetting(1, "Compactness") / 100
     local iconPoolIndex = 0
-    local arcDepth = Plugin:GetSetting(1, "ArcDepth") or DEFAULT_ARC_DEPTH
-    
+
     for displayIndex = 0, maxVisible - 1 do
         iconPoolIndex = iconPoolIndex + 1
-        
-        -- INFINITE SCROLL: Wrap around using modulo
+
         local actualIndex = ((scrollOffset + displayIndex) % totalItems) + 1
         local data = portalList[actualIndex]
-        
+
         if data then
-            -- Get or create icon from pool
-            if not iconPool then
-                iconPool = {}
-            end
+            if not iconPool then iconPool = {} end
             local icon = iconPool[iconPoolIndex]
             if not icon then
                 icon = CreatePortalIcon()
                 table.insert(iconPool, icon)
             end
-            
+
             ConfigureIcon(icon, data, displayIndex)
-            
-            -- Calculate arc offset using helper
-            local arcOffset = CalculateArcOffset(displayIndex, maxVisible, iconSize, arcDepth)
-            
-            -- Calculate and store the STABLE center position for this icon
-            -- This never changes during magnification - icons scale in place
-            local centerPos = currentPos + (iconSize / 2)
-            icon.stableCenterPos = centerPos
-            
-            -- Position icon at its center
-            PositionIconForOrientation(icon, dock, arcOffset, centerPos)
-            
-            currentPos = currentPos + iconSize + spacing
-            
+            ApplyIconCanvasComponents(icon, data, mythicPlusCache)
+
+            local axialPos, arcOffset = CalculatePosition(displayIndex, maxVisible, iconSize, spacing, compactness)
+            icon.stableCenterPos = axialPos
+            PositionIconForOrientation(icon, dock, arcOffset, axialPos, iconSize)
+
             table.insert(visibleIcons, icon)
         end
     end
-    
-    -- Update dock size based on orientation
-    local arcDepth = Plugin:GetSetting(1, "ArcDepth") or DEFAULT_ARC_DEPTH
-    local hoverScale = Plugin:GetSetting(1, "HoverScale") or 1.5
-    
-    -- Calculate dock dimensions
-    -- Length: sum of all icon sizes + spacing (use magnified size for worst case)
-    local maxIconSize = iconSize * hoverScale
-    local dockLength = math.max(currentPos - spacing + (maxIconSize - iconSize), iconSize)
-    
-    -- Thickness: must encompass arc offset + magnification bonus + icon size
-    -- Arc offset pushes icons out, magnification bonus pushes them further
-    local maxMagBonus = (hoverScale - 1) * iconSize * 0.8  -- Same formula as in animation
-    local dockThickness = maxIconSize + arcDepth + maxMagBonus + 10
+
+    local maxIconSize = iconSize
+    local maxMagBonus = 0
+
+    local dockLength = math_max(CalculateAxialExtent(maxVisible, iconSize, spacing, compactness) + (maxIconSize - iconSize), iconSize)
+    local perpExtent = CalculatePerpExtent(maxVisible, iconSize, spacing, compactness)
+    local dockThickness = maxIconSize + perpExtent + maxMagBonus + 2
     
     if IsHorizontal() then
         dock:SetWidth(dockLength)
@@ -1012,40 +792,47 @@ RefreshDock = function()
         dock:SetWidth(dockThickness)
         dock:SetHeight(dockLength)
     end
-    
+
+    -- Semi-clamp: allow drag past screen edge, keep 30px of dock always visible.
+    -- WoW's SetClampRectInsets sign convention differs between near/far edges —
+    -- left/bottom use positive to extend outward, right/top use negative.
+    local marginX = math_max(0, dock:GetWidth() - CLAMP_VISIBLE_MARGIN)
+    local marginY = math_max(0, dock:GetHeight() - CLAMP_VISIBLE_MARGIN)
+    dock:SetClampRectInsets(marginX, -marginX, -marginY, marginY)
+
     dock:Show()
 end
 
--- [ SCROLL HANDLING ] ---------------------------------------------------------
-
+-- [ SCROLL HANDLING ] -------------------------------------------------------------------------------
 local function OnMouseWheel(self, delta)
     if not CanInteract() then return end
-    
+
     local totalIcons = #portalList
     if totalIcons == 0 then return end
+
     
     -- SHIFT+SCROLL: Jump to next/previous category
     if IsShiftKeyDown() then
         -- Find current center item's category
-        local maxVisible = Plugin:GetSetting(1, "MaxVisible") or 11
+        local maxVisible = Plugin:GetSetting(1, "MaxVisible")
         maxVisible = NormalizeMaxVisible(maxVisible, totalIcons)
         local centerSlot = math.floor(maxVisible / 2)
         local currentCenterIndex = ((scrollOffset + centerSlot) % totalIcons) + 1
-        local currentCategory = portalList[currentCenterIndex] and portalList[currentCenterIndex].category
+        local currentCategory = portalList[currentCenterIndex] and portalList[currentCenterIndex].displayGroup
         
         if delta > 0 then
             -- Scroll UP (previous category): search backwards for different category
             for offset = 1, totalIcons - 1 do
                 local checkIndex = ((currentCenterIndex - 1 - offset) % totalIcons) + 1
                 local item = portalList[checkIndex]
-                if item and item.category ~= currentCategory then
-                    -- Found a different category, now find the FIRST item of that category
-                    local targetCategory = item.category
+                if item and item.displayGroup ~= currentCategory then
+                    -- Found a different group, now find the FIRST item of that group
+                    local targetCategory = item.displayGroup
                     local firstOfCategory = checkIndex
                     for back = 1, totalIcons do
                         local prevIndex = ((checkIndex - 1 - back) % totalIcons) + 1
                         local prevItem = portalList[prevIndex]
-                        if not prevItem or prevItem.category ~= targetCategory then
+                        if not prevItem or prevItem.displayGroup ~= targetCategory then
                             break
                         end
                         firstOfCategory = prevIndex
@@ -1060,8 +847,8 @@ local function OnMouseWheel(self, delta)
             for offset = 1, totalIcons - 1 do
                 local checkIndex = ((currentCenterIndex - 1 + offset) % totalIcons) + 1
                 local item = portalList[checkIndex]
-                if item and item.category ~= currentCategory then
-                    -- Found first item of next category, center it
+                if item and item.displayGroup ~= currentCategory then
+                    -- Found first item of next group, center it
                     scrollOffset = (checkIndex - 1 - centerSlot + totalIcons) % totalIcons
                     break
                 end
@@ -1075,8 +862,7 @@ local function OnMouseWheel(self, delta)
     RefreshDock()
 end
 
--- [ DOCK CREATION ] -----------------------------------------------------------
-
+-- [ DOCK CREATION ] ---------------------------------------------------------------------------------
 local function CreateDock()
     dock = CreateFrame("Frame", "OrbitPortalDock", UIParent)
     dock:SetSize(44, 200)
@@ -1090,6 +876,11 @@ local function CreateDock()
     dock:SetFrameStrata("MEDIUM")
     dock:SetFrameLevel(100)
     dock:SetClampedToScreen(true)
+    -- Permissive initial clamp so RestorePosition (which fires before RefreshDock sizes
+    -- the dock) doesn't snap a saved off-screen position back on-screen. RefreshDock
+    -- tightens these insets to the dock's actual bounds minus 30px once it runs.
+    local sw, sh = GetScreenWidth() or 2000, GetScreenHeight() or 1200
+    dock:SetClampRectInsets(sw, -sw, -sh, sh)
     dock:EnableMouse(true)
     dock:SetMovable(true)
     dock:RegisterForDrag("LeftButton")
@@ -1123,17 +914,105 @@ local function CreateDock()
     -- Enable engine-level auto-orientation during edit mode drag
     -- Orientation callback is registered in OnLoad after dock is attached to Orbit
     dock.orbitAutoOrient = true
-    
+
+    -- Canvas Mode: render a representative icon with DungeonScore + FavouriteStar draggable.
+    function dock:CreateCanvasPreview(options)
+        options = options or {}
+        local iconSize = Plugin:GetSetting(1, "IconSize")
+        local iconTexture = QUESTIONMARK_ICON
+        -- Prefer a seasonal dungeon icon so DungeonScore has something meaningful to render.
+        for _, item in ipairs(portalList or {}) do
+            if item.category == "SEASONAL_DUNGEON" and item.icon then
+                iconTexture = item.icon
+                break
+            end
+        end
+
+        -- Custom preview: round icon with talent-ring border (matches live dock icon).
+        local preview = CreateFrame("Frame", nil, options.parent or UIParent)
+        preview:SetSize(iconSize, iconSize)
+        preview.sourceFrame = self
+        preview.sourceWidth = iconSize
+        preview.sourceHeight = iconSize
+        preview.borderInset = 0
+        preview.previewScale = 1
+        preview.components = {}
+        preview.systemIndex = 1
+
+        local mask = preview:CreateMaskTexture()
+        mask:SetAllPoints()
+        mask:SetTexture(CIRCULAR_MASK_PATH, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+
+        local iconTex = preview:CreateTexture(nil, "ARTWORK")
+        iconTex:SetAllPoints()
+        iconTex:SetTexCoord(ICON_TEXCOORD_MIN, ICON_TEXCOORD_MAX, ICON_TEXCOORD_MIN, ICON_TEXCOORD_MAX)
+        iconTex:SetTexture(iconTexture)
+        iconTex:AddMaskTexture(mask)
+
+        -- Seasonal icons get the gold ring; fallback icon gets the grey ring.
+        local borderAtlas = iconTexture ~= QUESTIONMARK_ICON and "talents-node-circle-yellow" or "talents-node-circle-gray"
+        local borderTex = preview:CreateTexture(nil, "OVERLAY")
+        borderTex:SetAtlas(borderAtlas, false)
+        borderTex:SetPoint("CENTER")
+        borderTex:SetSize(iconSize * ICON_BORDER_SCALE, iconSize * ICON_BORDER_SCALE)
+
+        local savedPositions = Plugin:GetSetting(1, "ComponentPositions") or {}
+        local fontPath = GetGlobalFontPath()
+
+        OrbitEngine.IconCanvasPreview:AttachTextComponents(preview, {
+            { key = "Timer",        preview = "5",   anchorX = "CENTER", anchorY = "CENTER", offsetX = 0, offsetY = 0  },
+            { key = "DungeonScore", preview = "285", anchorX = "CENTER", anchorY = "BOTTOM", offsetX = 0, offsetY = -2 },
+            { key = "DungeonShort", preview = "AA",  anchorX = "CENTER", anchorY = "TOP",    offsetX = 0, offsetY = 2  },
+        }, savedPositions, fontPath)
+
+        -- Favourite Star: render the actual atlas as a draggable texture (not a text glyph).
+        local CreateDraggableComponent = OrbitEngine.CanvasMode and OrbitEngine.CanvasMode.CreateDraggableComponent
+        if CreateDraggableComponent then
+            local AnchorToCenter = OrbitEngine.PositionUtils.AnchorToCenter
+            local halfW, halfH = preview.sourceWidth / 2, preview.sourceHeight / 2
+            local srcStar = preview:CreateTexture(nil, "ARTWORK")
+            srcStar:SetAtlas(STAR_ATLAS)
+            srcStar:SetSize(STAR_SIZE, STAR_SIZE)
+            srcStar:Hide()
+            srcStar.orbitOriginalWidth, srcStar.orbitOriginalHeight = 12, 12
+
+            local saved = savedPositions.FavouriteStar or {}
+            local data = {
+                anchorX = saved.anchorX or "RIGHT",
+                anchorY = saved.anchorY or "TOP",
+                offsetX = saved.offsetX or 1,
+                offsetY = saved.offsetY or 1,
+                justifyH = saved.justifyH or "RIGHT",
+                overrides = saved.overrides,
+            }
+            local startX, startY = saved.posX, saved.posY
+            if startX == nil or startY == nil then
+                local cx, cy = AnchorToCenter(data.anchorX, data.anchorY, data.offsetX, data.offsetY, halfW, halfH)
+                startX = startX or cx
+                startY = startY or cy
+            end
+            local comp = CreateDraggableComponent(preview, "FavouriteStar", srcStar, startX, startY, data)
+            if comp then
+                comp:SetFrameLevel(preview:GetFrameLevel() + Orbit.Constants.Levels.Overlay)
+                preview.components.FavouriteStar = comp
+            end
+        end
+
+        return preview
+    end
+
     return dock
 end
 
--- [ LIFECYCLE ] -------------------------------------------------------
-
+-- [ LIFECYCLE ] -------------------------------------------------------------------------------------
 function Plugin:OnLoad()
     -- Create the dock frame
     dock = CreateDock()
     self.frame = dock
-    
+
+    -- Visibility Engine: centralised oocFade / opacity / hideMounted / mouseOver / showWithTarget.
+    if Orbit.OOCFadeMixin then Orbit.OOCFadeMixin:ApplyOOCFade(dock, self, 1) end
+
     -- Request M+ data so it's available for tooltips (otherwise requires opening M+ panel first)
     if C_MythicPlus then
         pcall(C_MythicPlus.RequestMapInfo)
@@ -1186,17 +1065,9 @@ function Plugin:OnLoad()
         end
     end
     
-    -- Restore saved position using Orbit's position system
-    if OrbitEngine and OrbitEngine.Frame then
-        OrbitEngine.Frame:RestorePosition(dock, self, 1)
-    else
-        -- Fallback: Load saved position manually
-        local pos = self:GetSetting(1, "Position")
-        if pos then
-            dock:ClearAllPoints()
-            dock:SetPoint(pos.point or "LEFT", UIParent, pos.relPoint or "LEFT", pos.x or 10, pos.y or 0)
-        end
-    end
+    -- Restore saved position via Orbit's position system. Sub-addons depend on Core, so
+    -- OrbitEngine.Frame is always present; no manual SetPoint fallback needed.
+    OrbitEngine.Frame:RestorePosition(dock, self, 1)
     
     -- Event handling for combat state and scanning
     self.eventFrame = CreateFrame("Frame")
@@ -1279,9 +1150,7 @@ function Plugin:UpdateVisibility()
     if not dock then return end
     local shouldHide = (C_PetBattles and C_PetBattles.IsInBattle()) or (UnitHasVehicleUI and UnitHasVehicleUI("player"))
         or (Orbit.MountedVisibility and Orbit.MountedVisibility:ShouldHide())
-    currentDockAlpha = shouldHide and 0 or RESTING_ALPHA
-    targetDockAlpha = currentDockAlpha
-    dock:SetAlpha(currentDockAlpha)
+    dock:SetAlpha(shouldHide and 0 or RESTING_ALPHA)
 end
 
 function Plugin:ApplySettings()
@@ -1304,28 +1173,62 @@ function Plugin:OnUnload()
 end
 
 
--- [ SETTINGS UI ] -----------------------------------------------------------
-
+-- [ SETTINGS UI ] -----------------------------------------------------------------------------------
 function Plugin:AddSettings(dialog, systemFrame)
-    local schema = {
-        controls = {
-            { type = "checkbox", key = "HideLongCooldowns", label = "Hide Long Cooldowns", default = true },
-            { type = "slider", key = "IconSize", label = "Icon Size", min = 24, max = 40, step = 2, default = 34 },
-            { type = "slider", key = "Spacing", label = "Icon Padding", min = 0, max = 20, step = 1, default = 3 },
-            { type = "slider", key = "MaxVisible", label = "Max Visible Icons", min = 3, max = 21, step = 2, default = 9 },
-            { type = "slider", key = "ArcDepth", label = "Arc Depth", min = 0, max = 30, step = 1, default = 10 },
-            { type = "slider", key = "HoverScale", label = "Magnification Scale", min = 1.0, max = 2.0, step = 0.05, default = 1.2 },
-        },
-    }
-    
+    local self_ = self
+    local SB = OrbitEngine.SchemaBuilder
+    local schema = { controls = {}, extraButtons = {} }
+
+    SB:SetTabRefreshCallback(dialog, self, systemFrame)
+    local currentTab = SB:AddSettingsTabs(schema, dialog, { "Layout", "Categories" }, "Layout")
+
+    if currentTab == "Layout" then
+        table.insert(schema.controls, { type = "checkbox", key = "HideLongCooldowns", label = "Hide Long Cooldowns", default = true })
+        table.insert(schema.controls, {
+            type = "slider", key = "FadeEffect", label = "Fade Effect",
+            min = 0, max = 100, step = 5, default = 20,
+            formatter = function(v) return v == 0 and "Off" or (v .. "%") end,
+        })
+        table.insert(schema.controls, { type = "slider", key = "IconSize", label = "Icon Size", min = 24, max = 40, step = 2, default = 34 })
+        table.insert(schema.controls, { type = "slider", key = "Spacing", label = "Icon Padding", min = 0, max = 20, step = 1, default = 3 })
+        table.insert(schema.controls, { type = "slider", key = "MaxVisible", label = "Max Visible Icons", min = 3, max = 21, step = 2, default = 9 })
+        table.insert(schema.controls, { type = "slider", key = "Compactness", label = "Compactness", min = 0, max = 100, step = 1, default = 0 })
+    elseif currentTab == "Categories" then
+        -- Count live portals per category so each row's label can show " (N)".
+        local counts = {}
+        for _, item in ipairs(Scanner:GetOrderedList()) do
+            counts[item.category] = (counts[item.category] or 0) + 1
+        end
+        -- FAVORITE is always on (per spec: pinned portals show even when their source category is off).
+        for _, cat in ipairs(PD.CategoryOrder) do
+            local count = counts[cat] or 0
+            if cat ~= "FAVORITE" and count > 0 then
+                local label = PD.CategoryNames[cat] or cat
+                table.insert(schema.controls, {
+                    type = "checkbox", key = "Category_" .. cat, label = label, default = true,
+                    valueText = "|cFFFFD100" .. count .. "|r",
+                    onChange = function(val)
+                        local enabled = self_:GetSetting(1, "EnabledCategories") or {}
+                        enabled[cat] = val  -- true = enabled, false = disabled
+                        self_:SetSetting(1, "EnabledCategories", enabled)
+                        if RefreshDock and CanInteract() then RefreshDock() end
+                    end,
+                    getValue = function()
+                        local enabled = self_:GetSetting(1, "EnabledCategories") or {}
+                        return enabled[cat] ~= false
+                    end,
+                })
+            end
+        end
+    end
+
     OrbitEngine.Config:Render(dialog, systemFrame, self, schema)
 end
 
 -- Export for debugging
 addon.PortalDock = Plugin
 
--- [ COMMAND HANDLER ] -------------------------------------------------------
-
+-- [ COMMAND HANDLER ] -------------------------------------------------------------------------------
 function Plugin:HandleCommand(cmd)
     cmd = cmd or ""
     
