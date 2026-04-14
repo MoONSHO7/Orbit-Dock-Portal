@@ -96,6 +96,18 @@ local STAR_SHADOW_ALPHA        = 0.95
 local STAR_ATLAS               = "transmog-icon-favorite"
 local STAR_SHADOW_ATLAS        = "PetJournal-BattleSlot-Shadow"
 
+local BORDER_ATLAS_FAVOURITE   = "talents-node-choiceflyout-circle-yellow"
+local BORDER_ATLAS_SEASONAL    = "talents-node-choiceflyout-circle-red"
+local BORDER_ATLAS_DEFAULT     = "talents-node-choiceflyout-circle-gray"
+
+local SHEEN_ATLAS              = "talents-sheen-node"
+local SHEEN_WIDTH_SCALE        = 1.0
+local SHEEN_SWEEP_DURATION     = 0.5
+local SHEEN_FADEIN_DURATION    = 0.15
+local SHEEN_FADEOUT_DURATION   = 0.20
+local SHEEN_FADEOUT_START      = 0.30
+local SHEEN_PEAK_ALPHA         = 0.85
+
 local HIGHLIGHT_COLOR_R        = 1.0
 local HIGHLIGHT_COLOR_G        = 0.95
 local HIGHLIGHT_COLOR_B        = 0.70
@@ -263,7 +275,7 @@ local function CreatePortalIcon()
     icon.mask = icon:CreateMaskTexture()
     icon.mask:SetAllPoints()
     icon.mask:SetTexture(CIRCULAR_MASK_PATH, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
-    
+
     -- Circular glossy mouseover highlight. Placed on ARTWORK sublevel 7 so it sits
     -- above the icon texture but below the OVERLAY-layer border ring. Toggled via
     -- the existing OnEnter/OnLeave scripts.
@@ -274,6 +286,30 @@ local function CreatePortalIcon()
     icon.highlight:SetBlendMode("ADD")
     icon.highlight:AddMaskTexture(icon.mask)
     icon.highlight:Hide()
+
+    -- Talent-tree style sheen: gradient bar atlas that sweeps left→right on mouseover,
+    -- clipped to the circular mask. ADD blend mimics a light reflection.
+    icon.sheen = icon:CreateTexture(nil, "ARTWORK", nil, 6)
+    icon.sheen:SetAtlas(SHEEN_ATLAS)
+    icon.sheen:SetBlendMode("ADD")
+    icon.sheen:AddMaskTexture(icon.mask)
+    icon.sheen:SetAlpha(0)
+
+    icon.sheenAnim = icon.sheen:CreateAnimationGroup()
+    icon.sheenTranslate = icon.sheenAnim:CreateAnimation("Translation")
+    icon.sheenTranslate:SetDuration(SHEEN_SWEEP_DURATION)
+    icon.sheenTranslate:SetOrder(1)
+    icon.sheenFadeIn = icon.sheenAnim:CreateAnimation("Alpha")
+    icon.sheenFadeIn:SetFromAlpha(0)
+    icon.sheenFadeIn:SetToAlpha(SHEEN_PEAK_ALPHA)
+    icon.sheenFadeIn:SetDuration(SHEEN_FADEIN_DURATION)
+    icon.sheenFadeIn:SetOrder(1)
+    icon.sheenFadeOut = icon.sheenAnim:CreateAnimation("Alpha")
+    icon.sheenFadeOut:SetFromAlpha(SHEEN_PEAK_ALPHA)
+    icon.sheenFadeOut:SetToAlpha(0)
+    icon.sheenFadeOut:SetDuration(SHEEN_FADEOUT_DURATION)
+    icon.sheenFadeOut:SetStartDelay(SHEEN_FADEOUT_START)
+    icon.sheenFadeOut:SetOrder(1)
 
     -- Icon texture (masked to be circular)
     icon.texture = icon:CreateTexture(nil, "ARTWORK")
@@ -297,17 +333,16 @@ local function CreatePortalIcon()
     icon.cooldownMask:SetAllPoints(icon.cooldown)
     icon.cooldownMask:SetTexture(CIRCULAR_MASK_PATH, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
     
-    -- Function to apply mask to all cooldown textures
+    -- Apply the circular mask to every Texture child of the cooldown frame. MaskTexture
+    -- inherits from Texture but doesn't implement AddMaskTexture, so exclude it explicitly.
+    -- Per-region flag prevents re-applying on re-entry (AddMaskTexture throws on duplicates).
     local function ApplyCircularMaskToCooldown(cooldown, mask)
-        -- Iterate through ALL regions of the cooldown frame
         for _, region in pairs({cooldown:GetRegions()}) do
-            if region:IsObjectType("Texture") then
-                -- Check if mask is already applied to avoid duplicates
-                local alreadyMasked = false
-                -- Try to apply mask - it will silently fail if already masked
-                pcall(function()
-                    region:AddMaskTexture(mask)
-                end)
+            if region:IsObjectType("Texture")
+               and not region:IsObjectType("MaskTexture")
+               and not region._orbitPortalMasked then
+                region:AddMaskTexture(mask)
+                region._orbitPortalMasked = true
             end
         end
     end
@@ -400,11 +435,12 @@ local function CreatePortalIcon()
         end
     end)
     
-    -- PostClick handler for click sound feedback
+    -- PostClick: sound feedback + talent-tree sheen sweep.
     icon:SetScript("PostClick", function(self)
         PlaySoundFile("Interface\\AddOns\\Orbit_Portal\\Audio\\switch-sound.ogg", "SFX")
+        if self.sheenAnim then self.sheenAnim:Stop(); self.sheenAnim:Play() end
     end)
-    
+
     -- Scripts
     icon:SetScript("OnEnter", function(self)
         if self.highlight then self.highlight:Show() end
@@ -505,14 +541,11 @@ local function CreatePortalIcon()
                     GameTooltip:AddLine(" ")  -- Spacing
                     GameTooltip:AddLine("Best Run", 0, 1, 0)
                     
-                    -- Safely access bestInfo fields (may be secret)
-                    local level, durationSec
-                    local ok3, _ = pcall(function()
-                        level = bestInfo.level
-                        durationSec = bestInfo.durationSec
-                    end)
-                    
-                    if ok3 and level and durationSec then
+                    -- bestInfo fields can be secret values during encounters. issecretvalue
+                    -- guards prevent throwing arithmetic; skip the row when either is secret.
+                    local level = bestInfo.level
+                    local durationSec = bestInfo.durationSec
+                    if level and durationSec and not issecretvalue(level) and not issecretvalue(durationSec) then
                         local mins = math.floor(durationSec / 60)
                         local secs = durationSec % 60
                         local timeText = string.format("%d:%02d", mins, secs)
@@ -576,16 +609,27 @@ local function ConfigureIcon(icon, data, index)
     -- Size the border to match icon size (we'll scale it after setting atlas)
     local borderSize = iconSize * ICON_BORDER_SCALE  -- Slightly larger than icon for ring effect
     
-    -- Set border atlas based on category
-    local category = data.category
-    if category == "SEASONAL_DUNGEON" or category == "SEASONAL_RAID" then
-        -- Golden ring for current season content
-        icon.border:SetAtlas("talents-node-circle-yellow", false)  -- false = don't use atlas size
+    -- Border atlas tiers: yellow for favourites, red for current-season, locked for the rest.
+    -- displayGroup is "FAVORITE" when the player has pinned this portal.
+    local borderAtlas
+    if data.displayGroup == "FAVORITE" then
+        borderAtlas = BORDER_ATLAS_FAVOURITE
+    elseif data.category == "SEASONAL_DUNGEON" or data.category == "SEASONAL_RAID" then
+        borderAtlas = BORDER_ATLAS_SEASONAL
     else
-        -- Gray ring for everything else
-        icon.border:SetAtlas("talents-node-circle-gray", false)
+        borderAtlas = BORDER_ATLAS_DEFAULT
     end
+    icon.border:SetAtlas(borderAtlas, false)
     icon.border:SetSize(borderSize, borderSize)
+    if icon.sheen then
+        local sheenW = iconSize * SHEEN_WIDTH_SCALE
+        icon.sheen:SetSize(sheenW, iconSize)
+        icon.sheen:ClearAllPoints()
+        icon.sheen:SetPoint("RIGHT", icon, "LEFT", 0, 0)  -- Start off-icon to the left.
+        if icon.sheenTranslate then
+            icon.sheenTranslate:SetOffset(iconSize + sheenW, 0)  -- Sweep fully past the icon.
+        end
+    end
 
     -- FavouriteStar + DungeonScore positioning/visibility are driven by ApplyCanvasComponents.
 
@@ -950,7 +994,7 @@ local function CreateDock()
         iconTex:AddMaskTexture(mask)
 
         -- Seasonal icons get the gold ring; fallback icon gets the grey ring.
-        local borderAtlas = iconTexture ~= QUESTIONMARK_ICON and "talents-node-circle-yellow" or "talents-node-circle-gray"
+        local borderAtlas = iconTexture ~= QUESTIONMARK_ICON and BORDER_ATLAS_SEASONAL or BORDER_ATLAS_DEFAULT
         local borderTex = preview:CreateTexture(nil, "OVERLAY")
         borderTex:SetAtlas(borderAtlas, false)
         borderTex:SetPoint("CENTER")
@@ -1011,58 +1055,52 @@ function Plugin:OnLoad()
     self.frame = dock
 
     -- Visibility Engine: centralised oocFade / opacity / hideMounted / mouseOver / showWithTarget.
-    if Orbit.OOCFadeMixin then Orbit.OOCFadeMixin:ApplyOOCFade(dock, self, 1) end
+    Orbit.OOCFadeMixin:ApplyOOCFade(dock, self, 1)
 
-    -- Request M+ data so it's available for tooltips (otherwise requires opening M+ panel first)
-    if C_MythicPlus then
-        pcall(C_MythicPlus.RequestMapInfo)
-        pcall(C_MythicPlus.RequestCurrentAffixes)
-    end
+    -- Prime the M+ caches so tooltip/score info is ready without needing the user to open
+    -- the M+ panel first. Fire-and-forget; the client dispatches them asynchronously.
+    C_MythicPlus.RequestMapInfo()
+    C_MythicPlus.RequestCurrentAffixes()
     
     -- Register for Edit Mode selection and settings
     dock.editModeName = "Portal Dock"
     dock.systemIndex = 1
     dock.orbitNoSnap = true  -- Disable anchoring/snapping to other frames
     
-    -- Attach to Orbit's Edit Mode selection system (enables highlight + settings panel)
-    if OrbitEngine and OrbitEngine.Frame then
-        OrbitEngine.Frame:AttachSettingsListener(dock, self, 1)
-        
-        -- Register orientation change callback for auto-rotation during edit mode drag
-        -- Compensates for size changes to keep dock anchored to cursor during drag
-        OrbitEngine.Frame:RegisterOrientationCallback(dock, function(orientation)
-            if currentOrientation == orientation then return end
-            
-            -- Save cursor offset from dock center before layout change
-            local cursorX, cursorY = GetCursorPosition()
-            local scale = dock:GetEffectiveScale()
-            cursorX, cursorY = cursorX / scale, cursorY / scale
-            local dockCenterX = dock:GetLeft() + (dock:GetWidth() / 2)
-            local dockCenterY = dock:GetBottom() + (dock:GetHeight() / 2)
-            local offsetX = cursorX - dockCenterX
-            local offsetY = cursorY - dockCenterY
-            
-            currentOrientation = orientation
-            RefreshDock()
-            
-            -- Reposition dock so cursor maintains same offset from center
-            if dock.orbitIsDragging then
-                local newCenterX = cursorX - offsetX
-                local newCenterY = cursorY - offsetY
-                local newLeft = newCenterX - (dock:GetWidth() / 2)
-                local newBottom = newCenterY - (dock:GetHeight() / 2)
-                dock:ClearAllPoints()
-                dock:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", newLeft, newBottom)
-            end
-        end)
-        
-        -- If Edit Mode is already active (plugin loaded mid-session), show selection
-        if EditModeManagerFrame and EditModeManagerFrame:IsShown() then
-            if OrbitEngine.FrameSelection then
-                dock:SetMovable(true)
-                OrbitEngine.FrameSelection:UpdateVisuals(dock)
-            end
+    -- Attach to Orbit's Edit Mode selection system (enables highlight + settings panel).
+    -- OrbitEngine.Frame is guaranteed by the Orbit dependency; no nil-guard needed.
+    OrbitEngine.Frame:AttachSettingsListener(dock, self, 1)
+
+    -- Register orientation change callback for auto-rotation during edit mode drag.
+    -- Keeps the dock anchored to the cursor when the orientation-swap changes its size.
+    OrbitEngine.Frame:RegisterOrientationCallback(dock, function(orientation)
+        if currentOrientation == orientation then return end
+
+        local cursorX, cursorY = GetCursorPosition()
+        local scale = dock:GetEffectiveScale()
+        cursorX, cursorY = cursorX / scale, cursorY / scale
+        local dockCenterX = dock:GetLeft() + (dock:GetWidth() / 2)
+        local dockCenterY = dock:GetBottom() + (dock:GetHeight() / 2)
+        local offsetX = cursorX - dockCenterX
+        local offsetY = cursorY - dockCenterY
+
+        currentOrientation = orientation
+        RefreshDock()
+
+        if dock.orbitIsDragging then
+            local newCenterX = cursorX - offsetX
+            local newCenterY = cursorY - offsetY
+            local newLeft = newCenterX - (dock:GetWidth() / 2)
+            local newBottom = newCenterY - (dock:GetHeight() / 2)
+            dock:ClearAllPoints()
+            dock:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", newLeft, newBottom)
         end
+    end)
+
+    -- If Edit Mode is already active (plugin loaded mid-session), show selection.
+    if EditModeManagerFrame and EditModeManagerFrame:IsShown() then
+        dock:SetMovable(true)
+        OrbitEngine.FrameSelection:UpdateVisuals(dock)
     end
     
     -- Restore saved position via Orbit's position system. Sub-addons depend on Core, so

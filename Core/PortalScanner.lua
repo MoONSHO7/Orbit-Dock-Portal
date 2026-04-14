@@ -7,20 +7,20 @@ addon.PortalScanner = {}
 local Scanner = addon.PortalScanner
 local PD = addon.PortalData
 
--- [ CONSTANTS ] -------------------------------------------------------------------------------------
+-- [ CONSTANTS ] ------------------------------------------------------------------------------------
 local HEARTHSTONE_ITEM_ID       = 6948
 local HEARTHSTONE_ICON_FALLBACK = 134414
 local ENGINEERING_SKILL_LINE    = 202
 local MIN_LEVEL_FOR_HOUSING     = 80
 
 -- Cache player info
-local playerClass = select(2, UnitClass("player"))
-local playerFaction = UnitFactionGroup("player")
+local PLAYER_CLASS = select(2, UnitClass("player"))
+local PLAYER_FACTION = UnitFactionGroup("player")
 
 -- Cache for async housing data
 local cachedHouseList = nil
 
--- [ DETECTION FUNCTIONS ] ---------------------------------------------------------------------------
+-- [ DETECTION FUNCTIONS ] --------------------------------------------------------------------------
 
 -- Check if a spell is known
 local function IsSpellAvailable(spellID)
@@ -29,16 +29,13 @@ end
 
 -- Check if a toy is owned
 local function IsToyOwned(itemID)
-    return PlayerHasToy and PlayerHasToy(itemID)
+    return PlayerHasToy(itemID)
 end
 
--- Check if a toy is usable (owned AND can be used in current zone)
+-- Check if a toy is usable (owned AND valid in the current zone/level).
 local function IsToyUsable(itemID)
-    if not PlayerHasToy or not PlayerHasToy(itemID) then
-        return false
-    end
-    -- C_ToyBox.IsToyUsable checks zone restrictions, level requirements, etc.
-    return C_ToyBox and C_ToyBox.IsToyUsable and C_ToyBox.IsToyUsable(itemID)
+    if not PlayerHasToy(itemID) then return false end
+    return C_ToyBox.IsToyUsable(itemID)
 end
 
 
@@ -50,13 +47,13 @@ end
 -- Check faction requirement
 local function MeetsFactionRequirement(data)
     if not data.faction then return true end
-    return data.faction == playerFaction
+    return data.faction == PLAYER_FACTION
 end
 
 -- Check class requirement
 local function MeetsClassRequirement(data)
     if not data.class then return true end
-    return data.class == playerClass
+    return data.class == PLAYER_CLASS
 end
 
 -- Get spell/item cooldown info
@@ -99,7 +96,7 @@ local function GetItemDetails(itemID)
     return name, icon
 end
 
--- [ CATEGORY SCANNERS ] -----------------------------------------------------------------------------
+-- [ CATEGORY SCANNERS ] ----------------------------------------------------------------------------
 
 -- Generic dungeon scanner for any expansion category
 function Scanner:ScanDungeonCategory(categoryData, categoryName)
@@ -334,7 +331,7 @@ end
 function Scanner:ScanMageTeleports()
     local results = {}
     
-    if playerClass ~= "MAGE" then return results end
+    if PLAYER_CLASS ~= "MAGE" then return results end
     
     for _, data in ipairs(PD.MAGE_TELEPORT or {}) do
         if MeetsFactionRequirement(data) then
@@ -361,7 +358,7 @@ end
 function Scanner:ScanMagePortals()
     local results = {}
 
-    if playerClass ~= "MAGE" then return results end
+    if PLAYER_CLASS ~= "MAGE" then return results end
 
     for _, data in ipairs(PD.MAGE_PORTAL or {}) do
         if MeetsFactionRequirement(data) then
@@ -563,7 +560,7 @@ function Scanner:RequestHousingData()
     end
 end
 
--- [ MAIN SCAN FUNCTION ] ----------------------------------------------------------------------------
+-- [ MAIN SCAN FUNCTION ] ---------------------------------------------------------------------------
 
 function Scanner:ScanAll()
     local allPortals = {}

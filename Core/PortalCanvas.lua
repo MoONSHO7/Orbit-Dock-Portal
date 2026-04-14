@@ -44,10 +44,13 @@ local function GetDungeonScoreColor(score)
     return c[1], c[2], c[3]
 end
 
+-- Orbit is a hard dependency; Orbit.db.GlobalSettings and LibSharedMedia are always present
+-- by the time a Portal icon renders. No need to guard the chain.
 local function GetGlobalFontPath()
-    local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
-    local fontName = Orbit.db and Orbit.db.GlobalSettings and Orbit.db.GlobalSettings.Font
-    if fontName and LSM then return LSM:Fetch("font", fontName) or STANDARD_TEXT_FONT end
+    local fontName = Orbit.db.GlobalSettings.Font
+    if fontName then
+        return LibStub("LibSharedMedia-3.0"):Fetch("font", fontName) or STANDARD_TEXT_FONT
+    end
     return STANDARD_TEXT_FONT
 end
 
