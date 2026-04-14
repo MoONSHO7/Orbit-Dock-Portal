@@ -18,5 +18,7 @@
 Core\PortalData.lua
 
 # Core
+Core\PortalLayout.lua
+Core\PortalCanvas.lua
 Core\PortalScanner.lua
 Core\PortalDock.lua

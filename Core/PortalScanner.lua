@@ -7,16 +7,20 @@ addon.PortalScanner = {}
 local Scanner = addon.PortalScanner
 local PD = addon.PortalData
 
+-- [ CONSTANTS ] ------------------------------------------------------------------------------------
+local HEARTHSTONE_ITEM_ID       = 6948
+local HEARTHSTONE_ICON_FALLBACK = 134414
+local ENGINEERING_SKILL_LINE    = 202
+local MIN_LEVEL_FOR_HOUSING     = 80
+
 -- Cache player info
-local playerClass = select(2, UnitClass("player"))
-local playerFaction = UnitFactionGroup("player")
+local PLAYER_CLASS = select(2, UnitClass("player"))
+local PLAYER_FACTION = UnitFactionGroup("player")
 
 -- Cache for async housing data
 local cachedHouseList = nil
 
--- ============================================================================
--- DETECTION FUNCTIONS
--- ============================================================================
+-- [ DETECTION FUNCTIONS ] --------------------------------------------------------------------------
 
 -- Check if a spell is known
 local function IsSpellAvailable(spellID)
@@ -25,16 +29,13 @@ end
 
 -- Check if a toy is owned
 local function IsToyOwned(itemID)
-    return PlayerHasToy and PlayerHasToy(itemID)
+    return PlayerHasToy(itemID)
 end
 
--- Check if a toy is usable (owned AND can be used in current zone)
+-- Check if a toy is usable (owned AND valid in the current zone/level).
 local function IsToyUsable(itemID)
-    if not PlayerHasToy or not PlayerHasToy(itemID) then
-        return false
-    end
-    -- C_ToyBox.IsToyUsable checks zone restrictions, level requirements, etc.
-    return C_ToyBox and C_ToyBox.IsToyUsable and C_ToyBox.IsToyUsable(itemID)
+    if not PlayerHasToy(itemID) then return false end
+    return C_ToyBox.IsToyUsable(itemID)
 end
 
 
@@ -46,49 +47,31 @@ end
 -- Check faction requirement
 local function MeetsFactionRequirement(data)
     if not data.faction then return true end
-    return data.faction == playerFaction
+    return data.faction == PLAYER_FACTION
 end
 
 -- Check class requirement
 local function MeetsClassRequirement(data)
     if not data.class then return true end
-    return data.class == playerClass
+    return data.class == PLAYER_CLASS
 end
 
 -- Get spell/item cooldown info
 local function GetCooldownInfo(isSpell, id)
     if not id then return 0, 0 end
-    
+
     local startTime, duration
-    
     if isSpell then
-        local ok, cooldownInfo = pcall(C_Spell.GetSpellCooldown, id)
-        if ok and cooldownInfo then
-            startTime = cooldownInfo.startTime
-            duration = cooldownInfo.duration
-        end
+        local info = C_Spell.GetSpellCooldown(id)
+        if info then startTime, duration = info.startTime, info.duration end
     else
-        local ok, st, dur = pcall(C_Container.GetItemCooldown, id)
-        if ok then
-            startTime = st
-            duration = dur
-        end
+        startTime, duration = C_Container.GetItemCooldown(id)
     end
-    
-    -- Use pcall to safely compare values (may be "secret" during encounters)
-    local ok, remaining = pcall(function()
-        if startTime and duration and startTime > 0 then
-            local rem = (startTime + duration) - GetTime()
-            return rem > 0 and rem or 0
-        end
-        return 0
-    end)
-    
-    if ok then
-        return remaining, duration or 0
-    end
-    
-    return 0, 0
+
+    if not startTime or not duration or startTime <= 0 then return 0, 0 end
+    local remaining = (startTime + duration) - GetTime()
+    if remaining < 0 then remaining = 0 end
+    return remaining, duration
 end
 
 -- Get spell info (name, icon)
@@ -113,9 +96,7 @@ local function GetItemDetails(itemID)
     return name, icon
 end
 
--- ============================================================================
--- CATEGORY SCANNERS
--- ============================================================================
+-- [ CATEGORY SCANNERS ] ----------------------------------------------------------------------------
 
 -- Generic dungeon scanner for any expansion category
 function Scanner:ScanDungeonCategory(categoryData, categoryName)
@@ -160,12 +141,14 @@ function Scanner:ScanSeasonalDungeons()
     
     -- Check all expansion dungeon categories for seasonal dungeons
     local dungeonCategories = {
+        PD.MIDNIGHT_DUNGEON,
         PD.TWW_DUNGEON,
         PD.DF_DUNGEON,
         PD.SL_DUNGEON,
         PD.BFA_DUNGEON,
         PD.LEGION_DUNGEON,
         PD.WOD_DUNGEON,
+        PD.WOTLK_DUNGEON,
         PD.MOP_DUNGEON,
         PD.CATA_DUNGEON,
         PD.CLASSIC_DUNGEON,
@@ -208,7 +191,7 @@ function Scanner:ScanSeasonalRaids()
         seasonalSpells[spellID] = true
     end
     
-    local raidCategories = { PD.TWW_RAID, PD.DF_RAID, PD.SL_RAID }
+    local raidCategories = { PD.MIDNIGHT_RAID, PD.TWW_RAID, PD.DF_RAID, PD.SL_RAID }
     
     for _, categoryData in ipairs(raidCategories) do
         for _, data in ipairs(categoryData or {}) do
@@ -273,15 +256,12 @@ function Scanner:ScanHearthstones()
     if #allAvailable > 0 then
         -- Get cooldown from first available (they share cooldown)
         local cooldown, cooldownDuration = GetCooldownInfo(false, allAvailable[1].itemID)
-        
-        -- Get icon from base hearthstone item (6948)
-        local _, _, _, _, hearthIcon = C_Item.GetItemInfoInstant(6948)
-        
+        local _, _, _, _, hearthIcon = C_Item.GetItemInfoInstant(HEARTHSTONE_ITEM_ID)
         table.insert(results, {
-            type = "random_hearthstone",  -- Special type for PortalDock to handle
+            type = "random_hearthstone",
             name = "Hearthstone",
             short = "HS",
-            icon = hearthIcon or 134414,  -- Fallback to common hearth icon
+            icon = hearthIcon or HEARTHSTONE_ICON_FALLBACK,
             cooldown = cooldown,
             cooldownDuration = cooldownDuration,
             category = "HEARTHSTONE",
@@ -351,7 +331,7 @@ end
 function Scanner:ScanMageTeleports()
     local results = {}
     
-    if playerClass ~= "MAGE" then return results end
+    if PLAYER_CLASS ~= "MAGE" then return results end
     
     for _, data in ipairs(PD.MAGE_TELEPORT or {}) do
         if MeetsFactionRequirement(data) then
@@ -377,9 +357,9 @@ end
 
 function Scanner:ScanMagePortals()
     local results = {}
-    
-    if playerClass ~= "MAGE" then return results end
-    
+
+    if PLAYER_CLASS ~= "MAGE" then return results end
+
     for _, data in ipairs(PD.MAGE_PORTAL or {}) do
         if MeetsFactionRequirement(data) then
             if IsSpellAvailable(data.spellID) then
@@ -392,14 +372,14 @@ function Scanner:ScanMagePortals()
                         name = name or data.name,
                         icon = icon,
                         cooldown = cooldown,
-                        category = "MAGE_PORTAL",
+                        category = "MAGE_TELEPORT",  -- Merged with self teleports.
                         isPortal = true,
                     })
                 end
             end
         end
     end
-    
+
     return results
 end
 
@@ -451,7 +431,7 @@ function Scanner:ScanEngineeringSpells()
         if profIndex then
             local name, _, skillRank, _, _, _, skillLineID = GetProfessionInfo(profIndex)
             -- Use skill line ID 202 (Engineering) for locale-independent detection
-            if skillLineID == 202 then
+            if skillLineID == ENGINEERING_SKILL_LINE then
                 hasEngineering = true
                 rank = skillRank
                 break
@@ -536,7 +516,7 @@ function Scanner:ScanHousing()
     -- The macro will handle the actual teleport; if no house, nothing happens
     if not hasHouse then
         local level = UnitLevel("player")
-        if level and level >= 80 then
+        if level and level >= MIN_LEVEL_FOR_HOUSING then
             hasHouse = true
             displayName = "Teleport to Plot"
         end
@@ -546,14 +526,10 @@ function Scanner:ScanHousing()
         return results
     end
     
-    -- Get cooldown info (if available)
     local cooldown, cooldownDuration = 0, 0
-    local ok, cdInfo = pcall(function()
-        return C_Housing.GetVisitCooldownInfo and C_Housing.GetVisitCooldownInfo()
-    end)
-    if ok and cdInfo and cdInfo.startTime and cdInfo.duration then
-        local remaining = (cdInfo.startTime + cdInfo.duration) - GetTime()
-        cooldown = remaining > 0 and remaining or 0
+    local cdInfo = C_Housing.GetVisitCooldownInfo and C_Housing.GetVisitCooldownInfo()
+    if cdInfo and cdInfo.startTime and cdInfo.duration then
+        cooldown = math.max(0, (cdInfo.startTime + cdInfo.duration) - GetTime())
         cooldownDuration = cdInfo.duration
     end
     
@@ -584,9 +560,7 @@ function Scanner:RequestHousingData()
     end
 end
 
--- ============================================================================
--- MAIN SCAN FUNCTION
--- ============================================================================
+-- [ MAIN SCAN FUNCTION ] ---------------------------------------------------------------------------
 
 function Scanner:ScanAll()
     local allPortals = {}
@@ -604,9 +578,11 @@ function Scanner:ScanAll()
     -- Class portals
     allPortals.CLASS = self:ScanClassSpells()
     
-    -- Mage spells (separated)
+    -- Mage spells: self teleports + group portals share one category.
     allPortals.MAGE_TELEPORT = self:ScanMageTeleports()
-    allPortals.MAGE_PORTAL = self:ScanMagePortals()
+    for _, item in ipairs(self:ScanMagePortals()) do
+        table.insert(allPortals.MAGE_TELEPORT, item)
+    end
     
     -- Build set of seasonal spells to exclude from expansion categories
     local seasonalSpells = {}
@@ -628,15 +604,27 @@ function Scanner:ScanAll()
         return filtered
     end
     
+    allPortals.MIDNIGHT_DUNGEON = filterSeasonal(self:ScanDungeonCategory(PD.MIDNIGHT_DUNGEON, "MIDNIGHT_DUNGEON"))
     allPortals.TWW_DUNGEON = filterSeasonal(self:ScanDungeonCategory(PD.TWW_DUNGEON, "TWW_DUNGEON"))
-    allPortals.TWW_RAID = filterSeasonal(self:ScanDungeonCategory(PD.TWW_RAID, "TWW_RAID"))
     allPortals.DF_DUNGEON = filterSeasonal(self:ScanDungeonCategory(PD.DF_DUNGEON, "DF_DUNGEON"))
-    allPortals.DF_RAID = filterSeasonal(self:ScanDungeonCategory(PD.DF_RAID, "DF_RAID"))
     allPortals.SL_DUNGEON = filterSeasonal(self:ScanDungeonCategory(PD.SL_DUNGEON, "SL_DUNGEON"))
-    allPortals.SL_RAID = filterSeasonal(self:ScanDungeonCategory(PD.SL_RAID, "SL_RAID"))
     allPortals.BFA_DUNGEON = filterSeasonal(self:ScanDungeonCategory(PD.BFA_DUNGEON, "BFA_DUNGEON"))
+
+    -- Raids: every expansion's raid portals fold into a single RAID category.
+    allPortals.RAID = {}
+    local function appendRaids(rawRaids)
+        for _, item in ipairs(filterSeasonal(rawRaids)) do
+            item.category = "RAID"
+            table.insert(allPortals.RAID, item)
+        end
+    end
+    appendRaids(self:ScanDungeonCategory(PD.MIDNIGHT_RAID, "RAID"))
+    appendRaids(self:ScanDungeonCategory(PD.TWW_RAID,      "RAID"))
+    appendRaids(self:ScanDungeonCategory(PD.DF_RAID,       "RAID"))
+    appendRaids(self:ScanDungeonCategory(PD.SL_RAID,       "RAID"))
     allPortals.LEGION_DUNGEON = filterSeasonal(self:ScanDungeonCategory(PD.LEGION_DUNGEON, "LEGION_DUNGEON"))
     allPortals.WOD_DUNGEON = filterSeasonal(self:ScanDungeonCategory(PD.WOD_DUNGEON, "WOD_DUNGEON"))
+    allPortals.WOTLK_DUNGEON = filterSeasonal(self:ScanDungeonCategory(PD.WOTLK_DUNGEON, "WOTLK_DUNGEON"))
     allPortals.MOP_DUNGEON = filterSeasonal(self:ScanDungeonCategory(PD.MOP_DUNGEON, "MOP_DUNGEON"))
     allPortals.CATA_DUNGEON = filterSeasonal(self:ScanDungeonCategory(PD.CATA_DUNGEON, "CATA_DUNGEON"))
     allPortals.CLASSIC_DUNGEON = filterSeasonal(self:ScanDungeonCategory(PD.CLASSIC_DUNGEON, "CLASSIC_DUNGEON"))
