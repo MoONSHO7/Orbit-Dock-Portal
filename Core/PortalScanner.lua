@@ -68,7 +68,9 @@ local function GetCooldownInfo(isSpell, id)
         startTime, duration = C_Container.GetItemCooldown(id)
     end
 
-    if not startTime or not duration or startTime <= 0 then return 0, 0 end
+    if not startTime or not duration then return 0, 0 end
+    if issecretvalue(startTime) or issecretvalue(duration) then return 0, 0 end
+    if startTime <= 0 then return 0, 0 end
     local remaining = (startTime + duration) - GetTime()
     if remaining < 0 then remaining = 0 end
     return remaining, duration
