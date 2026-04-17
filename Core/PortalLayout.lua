@@ -1,5 +1,4 @@
--- PortalLayout.lua: Pure layout math — arc-wrap positioning, edge-fade alpha.
--- No module state. All helpers are deterministic functions of their arguments.
+-- PortalLayout.lua: Pure, stateless layout math — arc-wrap positioning and edge-fade alpha.
 
 local _, addon = ...
 
@@ -25,19 +24,14 @@ function Layout.NormalizeMaxVisible(maxVisible, totalItems)
     return math_max(3, math_min(maxVisible, totalItems or maxVisible))
 end
 
--- Min/max of sin(theta) over theta in [-halfMax, halfMax].
--- halfMax <= pi/2: sin monotonic, extremes at endpoints.
--- halfMax  > pi/2: sin peaks at +-pi/2 inside the range -> hits +-1.
+-- Min/max of sin(theta) over [-halfMax, halfMax]: when halfMax > pi/2 the peak at ±pi/2 hits ±1.
 local function SinRange(halfMax)
     if halfMax > math_pi / 2 then return -1, 1 end
     local s = math_sin(halfMax)
     return -s, s
 end
 
--- Arc-wrap layout: wraps the linear icon chain onto a circle.
--- compactness 0..1: 0 = straight line, 1 = almost-full circle (one slot gap at top).
--- Returns (axialPos, perpOffset). axialPos is the icon's center along the layout axis;
--- perpOffset is the outward bulge (0 at ends, peak at middle).
+-- compactness 0..1 wraps the chain onto a circle (0 = straight, 1 ≈ full circle with one slot gap).
 function Layout.CalculatePosition(displayIndex, maxVisible, iconSize, spacing, compactness)
     local segment = iconSize + spacing
     local linearAxial = displayIndex * segment + iconSize / 2
@@ -78,9 +72,7 @@ function Layout.CalculateAxialExtent(maxVisible, iconSize, spacing, compactness)
     return radius * (maxSin - minSin) + iconSize
 end
 
--- Edge-fade alpha for an icon at a given display index (0-based).
--- fadeAmount 0 -> no fade. 20 -> classic cosine. 100 -> very sharp drop-off.
--- Always clamped to a minimum so even the farthest icons keep a visible silhouette.
+-- fadeAmount: 0 = no fade, 20 = classic cosine, 100 = very sharp; always clamped to MIN_FADE_ALPHA.
 function Layout.EdgeAlphaForIndex(iconIndex, maxVisible, fadeAmount)
     if not fadeAmount or fadeAmount <= 0 then return 1 end
     local visualCenterIndex = (maxVisible + 1) / 2

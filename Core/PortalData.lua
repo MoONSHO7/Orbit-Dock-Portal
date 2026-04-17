@@ -1,59 +1,58 @@
--- PortalData.lua
--- Static database of portal spells, toys, and items organized by category
+-- PortalData.lua: Static database of portal spells, toys, and items organized by category.
 
 local _, addon = ...
 addon.PortalData = {}
 
+local L = Orbit.L
 local PD = addon.PortalData
 
 -- [ CATEGORY CONFIGURATION ] ------------------------------------------------------------------------
--- Category order for dock display (priority order)
 PD.CategoryOrder = {
-    "HEARTHSTONE",          -- Hearthstones (FIRST - default position)
-    "HOUSING",              -- Player Housing teleport
-    "FAVORITE",             -- User-pinned favorites (Shift+RMB)
-    "SEASONAL_DUNGEON",     -- Current M+ rotation dungeons
-    "SEASONAL_RAID",        -- Current raid tier
-    "CLASS",                -- Class-specific (e.g., DK Gate, Monk Zen, Druid Dreamwalk)
-    "MAGE_TELEPORT",        -- All mage teleports (self + group portals)
-    "RAID",                 -- All raid portals across expansions
-    "MIDNIGHT_DUNGEON",     -- Midnight dungeons
-    "TWW_DUNGEON",          -- The War Within dungeons
-    "DF_DUNGEON",           -- Dragonflight dungeons
-    "SL_DUNGEON",           -- Shadowlands dungeons
-    "BFA_DUNGEON",          -- Battle for Azeroth dungeons
-    "LEGION_DUNGEON",       -- Legion dungeons
-    "WOD_DUNGEON",          -- Warlords of Draenor dungeons
-    "WOTLK_DUNGEON",        -- Wrath of the Lich King dungeons
-    "MOP_DUNGEON",          -- Mists of Pandaria dungeons
-    "CATA_DUNGEON",         -- Cataclysm dungeons
-    "CLASSIC_DUNGEON",      -- Classic dungeons
-    "ENGINEER",             -- Engineering teleports
-    "TOY",                  -- Misc portal toys
+    "HEARTHSTONE",
+    "HOUSING",
+    "FAVORITE",
+    "SEASONAL_DUNGEON",
+    "SEASONAL_RAID",
+    "CLASS",
+    "MAGE_TELEPORT",
+    "RAID",
+    "MIDNIGHT_DUNGEON",
+    "TWW_DUNGEON",
+    "DF_DUNGEON",
+    "SL_DUNGEON",
+    "BFA_DUNGEON",
+    "LEGION_DUNGEON",
+    "WOD_DUNGEON",
+    "WOTLK_DUNGEON",
+    "MOP_DUNGEON",
+    "CATA_DUNGEON",
+    "CLASSIC_DUNGEON",
+    "ENGINEER",
+    "TOY",
 }
 
 PD.CategoryNames = {
-    SEASONAL_DUNGEON = "Current Season",
-    SEASONAL_RAID = "Current Raid",
-    HEARTHSTONE = "Hearthstone",
-    HOUSING = "Player Housing",
-    FAVORITE = "Favorites",
-    CLASS = "Class Portals",
-    MAGE_TELEPORT = "Mage Teleports",
-    RAID = "Raids",
-    MIDNIGHT_DUNGEON = "Midnight Dungeons",
-    TWW_DUNGEON = "TWW Dungeons",
-    DF_DUNGEON = "DF Dungeons",
-    SL_DUNGEON = "SL Dungeons",
-    BFA_DUNGEON = "BfA Dungeons",
-    LEGION_DUNGEON = "Legion Dungeons",
-    WOD_DUNGEON = "WoD Dungeons",
-    WOTLK_DUNGEON = "WotLK Dungeons",
-    MOP_DUNGEON = "MoP Dungeons",
-    CATA_DUNGEON = "Cata Dungeons",
-    CLASSIC_DUNGEON = "Classic Dungeons",
-    ENGINEER = "Engineering",
-    TOY = "Portal Toys",
+    SEASONAL_DUNGEON = L.PLU_PORTAL_CAT_CURRENT_SEASON,
+    SEASONAL_RAID    = L.PLU_PORTAL_CAT_CURRENT_RAID,
+    HEARTHSTONE      = L.PLU_PORTAL_CAT_HEARTHSTONE,
+    HOUSING          = L.PLU_PORTAL_CAT_HOUSING,
+    FAVORITE         = L.PLU_PORTAL_CAT_FAVORITES,
+    CLASS            = L.PLU_PORTAL_CAT_CLASS,
+    MAGE_TELEPORT    = L.PLU_PORTAL_CAT_MAGE,
+    RAID             = L.PLU_PORTAL_CAT_RAID,
+    MIDNIGHT_DUNGEON = L.PLU_PORTAL_CAT_MIDNIGHT_D,
+    TWW_DUNGEON      = L.PLU_PORTAL_CAT_TWW_D,
+    DF_DUNGEON       = L.PLU_PORTAL_CAT_DF_D,
+    SL_DUNGEON       = L.PLU_PORTAL_CAT_SL_D,
+    BFA_DUNGEON      = L.PLU_PORTAL_CAT_BFA_D,
+    LEGION_DUNGEON   = L.PLU_PORTAL_CAT_LEGION_D,
+    WOD_DUNGEON      = L.PLU_PORTAL_CAT_WOD_D,
+    WOTLK_DUNGEON    = L.PLU_PORTAL_CAT_WOTLK_D,
+    MOP_DUNGEON      = L.PLU_PORTAL_CAT_MOP_D,
+    CATA_DUNGEON     = L.PLU_PORTAL_CAT_CATA_D,
+    CLASSIC_DUNGEON  = L.PLU_PORTAL_CAT_CLASSIC_D,
+    ENGINEER         = L.PLU_PORTAL_CAT_ENGINEER,
+    TOY              = L.PLU_PORTAL_CAT_TOY,
 }
 
 -- [ CURRENT SEASON CONFIGURATION (Update each season!) ] --------------------------------------------
@@ -243,8 +242,7 @@ PD.HEARTHSTONE_SHARED = {
     { itemID = 265100, name = "Corewarden's Hearthstone", type = "toy" },
 }
 
--- Hearthstones with SEPARATE cooldowns (always show individually)
--- Note: Garrison HS and Dalaran HS were converted to toys in patch 10.1.5+
+-- Separate-cooldown hearthstones shown individually. Garrison/Dalaran HS became toys in 10.1.5+.
 PD.HEARTHSTONE_UNIQUE = {
     { itemID = 110560, name = "Garrison Hearthstone", type = "toy" },
     { itemID = 140192, name = "Dalaran Hearthstone", type = "toy" },

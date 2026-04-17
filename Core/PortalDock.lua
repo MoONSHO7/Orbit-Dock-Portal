@@ -6,8 +6,8 @@ local PD = addon.PortalData
 ---@type Orbit
 local Orbit = Orbit
 local OrbitEngine = Orbit.Engine
+local L = Orbit.L
 
--- Cache frequently used globals (performance optimization)
 local math_abs = math.abs
 local math_min = math.min
 local math_max = math.max
@@ -24,11 +24,11 @@ local SYSTEM_ID = "Orbit_Portal"
 
 local Plugin = Orbit:RegisterPlugin("Portal Dock", SYSTEM_ID, {
     defaults = {
-        IconSize = 34,
-        Spacing = 3,
+        IconSize = 32,
+        Spacing = 5,
         MaxVisible = 9,
         HideLongCooldowns = true,
-        FadeEffect = 20,  -- 0 = off (no fade); increases toward sharper edge falloff.
+        FadeEffect = 10,  -- 0 = off (no fade); increases toward sharper edge falloff.
         Compactness = 0,
         Favorites = {},
         ComponentPositions = {
@@ -37,7 +37,7 @@ local Plugin = Orbit:RegisterPlugin("Portal Dock", SYSTEM_ID, {
             FavouriteStar = { anchorX = "RIGHT",  anchorY = "TOP",    offsetX = 1, offsetY = 1,  justifyH = "RIGHT"  },
             Timer         = { anchorX = "CENTER", anchorY = "CENTER", offsetX = 0, offsetY = 0,  justifyH = "CENTER" },
         },
-        DisabledComponents = { "Timer", "DungeonShort" },
+        DisabledComponents = { "DungeonShort", "Status" },
     },
 })
 
@@ -67,20 +67,24 @@ local function ToggleFavorite(data)
 end
 
 -- [ CANVAS COMPONENTS ] -----------------------------------------------------------------------------
--- Canvas Mode per-icon apply lives in PortalCanvas.lua. This thin wrapper bridges the plugin's
--- favourites helper (captured at dispatch time so the module stays decoupled from favourites).
 local ApplyCanvasComponents = addon.PortalCanvas.ApplyIconComponents
 local GetGlobalFontPath     = addon.PortalCanvas.GetGlobalFontPath
-
-local function ApplyIconCanvasComponents(icon, data, mythicPlusCache)
-    ApplyCanvasComponents(Plugin, icon, data, mythicPlusCache, IsFavorite(data))
-end
+local GetDungeonScoreColor  = addon.PortalCanvas.GetDungeonScoreColor
 
 -- [ CONSTANTS ] -------------------------------------------------------------------------------------
 local RESTING_ALPHA            = 1.0
 local FADE_DEFAULT             = 20
 local GCD_THRESHOLD            = 2
 local LONG_COOLDOWN_THRESHOLD  = 1800
+
+local INITIAL_ICON_SIZE        = 36
+local INITIAL_DOCK_WIDTH       = 44
+local INITIAL_DOCK_HEIGHT      = 200
+local INITIAL_DOCK_X_OFFSET    = 10
+local DOCK_FRAME_LEVEL         = 100
+local DOCK_FRAME_STRATA        = "MEDIUM"
+local INITIAL_SCAN_DELAY       = 2
+local MISSING_ICON_FILE_ID     = 134400
 
 local ICON_TEXCOORD_MIN        = 0.08
 local ICON_TEXCOORD_MAX        = 0.92
@@ -186,11 +190,7 @@ local function FormatDuration(seconds)
     end
 end
 
--- DRY: Position icon based on current orientation (CENTER-ANCHORED)
--- pos = the center position along the layout axis (from dock edge)
--- Icons are anchored at their CENTER so scaling expands equally in all directions
--- Icons anchor to the dock's inside edge so the dock hugs the icon column/row tightly.
--- Axis line is inset by iconSize/2 from the anchored edge; bulge pushes toward screen center.
+-- Icons are CENTER-anchored so scaling expands equally; axis is inset iconSize/2 from the dock edge.
 local function PositionIconForOrientation(icon, dockFrame, arcOffset, centerPos, iconSize)
     icon:ClearAllPoints()
     local halfIcon = iconSize / 2
@@ -206,41 +206,35 @@ local function PositionIconForOrientation(icon, dockFrame, arcOffset, centerPos,
 end
 
 -- [ COMBAT AND ENCOUNTER HANDLING ] -----------------------------------------------------------------
+-- Disable during combat lockdown or while a boss encounter is in progress (even if dead).
 local function CanInteract()
-    -- Disable during combat lockdown OR during boss encounters (even if dead)
     if InCombatLockdown() then return false end
-    if C_Encounter and C_Encounter.IsEncounterInProgress and C_Encounter.IsEncounterInProgress() then return false end
+    if C_InstanceEncounter.IsEncounterInProgress() then return false end
     return true
 end
 
 local function UpdateCombatState()
     if not dock then return end
-    
-    local inCombatOrEncounter = InCombatLockdown() or 
-        (C_Encounter and C_Encounter.IsEncounterInProgress and C_Encounter.IsEncounterInProgress())
-    
+
+    local inCombatOrEncounter = InCombatLockdown() or C_InstanceEncounter.IsEncounterInProgress()
+
     if inCombatOrEncounter then
-        -- COMBAT/ENCOUNTER STARTED
-        -- Only hide if we're NOT yet in combat lockdown (REGEN_DISABLED fires before lockdown)
+        -- REGEN_DISABLED fires before lockdown; only Hide() while the secure call is still legal.
         if not InCombatLockdown() then
             dock:Hide()
         end
-        
-        -- Force exit edit mode awareness during combat
+
+        -- RefreshDock would touch secure attributes; defer the actual refresh to REGEN_ENABLED.
         if isEditModeActive then
             isEditModeActive = false
-            -- Note: We can't call RefreshDock() here because we're in combat
-            -- It will be refreshed when combat ends
         end
-        
+
         isMouseOver = false
     else
-        -- COMBAT ENDED: Restore dock (safe to call Show() when not in combat)
         dock:Show()
         dock:SetAlpha(RESTING_ALPHA)
         dock:EnableMouse(true)
-        
-        -- Check if Edit Mode is still open (player may have opened it before combat)
+
         if EditModeManagerFrame and EditModeManagerFrame:IsShown() then
             isEditModeActive = true
         end
@@ -258,8 +252,7 @@ end
 
 local EdgeAlphaForIndex = addon.PortalLayout.EdgeAlphaForIndex
 
--- Mouse hover hooks: kept as named entry points but the dock is always fully opaque now.
--- All per-icon position + alpha work happens in RefreshDock; nothing needs to tick per frame.
+-- Dock is always fully opaque; alpha work happens per-icon in RefreshDock, not per frame.
 local function FadeDockIn()  if dock then dock:SetAlpha(1) end end
 local function FadeDockOut() if dock then dock:SetAlpha(1) end end
 
@@ -269,16 +262,13 @@ local function FadeDockOut() if dock then dock:SetAlpha(1) end end
 local function CreatePortalIcon()
     local icon = CreateFrame("Button", nil, dock, "SecureActionButtonTemplate")
     icon:RegisterForClicks("AnyUp", "AnyDown")
-    icon:SetSize(36, 36)
-    
-    -- Circular mask for round icons
+    icon:SetSize(INITIAL_ICON_SIZE, INITIAL_ICON_SIZE)
+
     icon.mask = icon:CreateMaskTexture()
     icon.mask:SetAllPoints()
     icon.mask:SetTexture(CIRCULAR_MASK_PATH, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
 
-    -- Circular glossy mouseover highlight. Placed on ARTWORK sublevel 7 so it sits
-    -- above the icon texture but below the OVERLAY-layer border ring. Toggled via
-    -- the existing OnEnter/OnLeave scripts.
+    -- ARTWORK sublevel 7: above the icon texture but below the OVERLAY border ring.
     icon.highlight = icon:CreateTexture(nil, "ARTWORK", nil, 7)
     icon.highlight:SetAllPoints()
     icon.highlight:SetTexture("Interface\\Buttons\\WHITE8x8")
@@ -287,8 +277,7 @@ local function CreatePortalIcon()
     icon.highlight:AddMaskTexture(icon.mask)
     icon.highlight:Hide()
 
-    -- Talent-tree style sheen: gradient bar atlas that sweeps left→right on mouseover,
-    -- clipped to the circular mask. ADD blend mimics a light reflection.
+    -- Sheen: gradient bar that sweeps across the icon on click, clipped to the circular mask.
     icon.sheen = icon:CreateTexture(nil, "ARTWORK", nil, 6)
     icon.sheen:SetAtlas(SHEEN_ATLAS)
     icon.sheen:SetBlendMode("ADD")
@@ -327,15 +316,12 @@ local function CreatePortalIcon()
     icon.cooldown:SetUseCircularEdge(true)   -- Circular edge for round icons
     icon.cooldown:SetDrawBling(false)    -- No flash on complete
     
-    -- Create a dedicated mask for the cooldown swipe (separate from icon mask)
-    -- This ensures the mask is always available and properly sized
+    -- Dedicated mask so the cooldown swipe keeps a circular clip even if the icon mask is changed.
     icon.cooldownMask = icon.cooldown:CreateMaskTexture()
     icon.cooldownMask:SetAllPoints(icon.cooldown)
     icon.cooldownMask:SetTexture(CIRCULAR_MASK_PATH, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
     
-    -- Apply the circular mask to every Texture child of the cooldown frame. MaskTexture
-    -- inherits from Texture but doesn't implement AddMaskTexture, so exclude it explicitly.
-    -- Per-region flag prevents re-applying on re-entry (AddMaskTexture throws on duplicates).
+    -- MaskTexture inherits Texture but can't receive AddMaskTexture; the per-region flag blocks duplicate adds (throws).
     local function ApplyCircularMaskToCooldown(cooldown, mask)
         for _, region in pairs({cooldown:GetRegions()}) do
             if region:IsObjectType("Texture")
@@ -350,13 +336,10 @@ local function CreatePortalIcon()
     -- Apply mask immediately (for any pre-existing regions)
     ApplyCircularMaskToCooldown(icon.cooldown, icon.cooldownMask)
     
-    -- Hook SetCooldown to ensure mask is applied when cooldown becomes active
-    -- This catches cases where textures are created/modified when the cooldown starts
+    -- SetCooldown may materialise new texture regions; re-apply the mask after each call.
     local originalSetCooldown = icon.cooldown.SetCooldown
     icon.cooldown.SetCooldown = function(self, start, duration, ...)
-        -- Call original function first
         originalSetCooldown(self, start, duration, ...)
-        -- Re-apply mask after cooldown is set (textures may have been updated)
         ApplyCircularMaskToCooldown(self, icon.cooldownMask)
     end
     
@@ -400,10 +383,7 @@ local function CreatePortalIcon()
     -- Circular border using talent tree style ring
     icon.border = icon:CreateTexture(nil, "OVERLAY")
     icon.border:SetPoint("CENTER")
-    -- Atlas will be set in ConfigureIcon based on category
-    -- Border will use UseAtlasSize for proper dimensions
-    
-    -- PreClick handler for random hearthstone - picks a new random one each click
+
     icon:SetScript("PreClick", function(self, button)
         -- Shift+Right-click: toggle favorite (non-secure, no type2 attribute set)
         if button == "RightButton" and IsShiftKeyDown() then
@@ -414,8 +394,7 @@ local function CreatePortalIcon()
             end
             return
         end
-        -- Random hearthstone re-roll: combat lockdown blocks SetAttribute on secure
-        -- buttons, so skip the re-roll in combat and let the last-selected stone fire.
+        -- Random hearthstone re-roll: combat lockdown blocks SetAttribute, so keep the last selection.
         local data = self.portalData
         if data and data.type == "random_hearthstone" and data.availableHearthstones and not InCombatLockdown() then
             local available = data.availableHearthstones
@@ -459,11 +438,10 @@ local function CreatePortalIcon()
                 GameTooltip:SetOwner(self, "ANCHOR_LEFT", -10, 0)
             end
             
-            -- Line 1: Short name + instance name (yellow header)
             local shortName = data.short or ""
             local instanceName = data.instanceName
-            local portalName = data.name or "Unknown"
-            
+            local portalName = data.name or L.PLU_PORTAL_UNKNOWN
+
             if shortName ~= "" and instanceName then
                 GameTooltip:AddLine(shortName .. " - " .. instanceName, 1, 0.82, 0)
             elseif instanceName then
@@ -471,112 +449,87 @@ local function CreatePortalIcon()
             else
                 GameTooltip:AddLine(portalName, 1, 0.82, 0)
             end
-            
-            -- Line 2: Portal spell name (white) - only if different from instance name
+
             if instanceName and instanceName ~= portalName then
                 GameTooltip:AddLine(portalName, 1, 1, 1)
             end
-            
-            -- Line 3: Category (gray)
-            local categoryName = PD.CategoryNames[data.category] or data.category or "Portal"
+
+            local categoryName = PD.CategoryNames[data.category] or data.category
             GameTooltip:AddLine(categoryName, 0.5, 0.5, 0.5)
-            
-            -- For hearthstones, show bind location
+
             if data.category == "HEARTHSTONE" or data.type == "random_hearthstone" then
                 local bindLocation = GetBindLocation()
                 if bindLocation and bindLocation ~= "" then
-                    GameTooltip:AddDoubleLine("Destination:", bindLocation, 0.7, 0.7, 0.7, 0.5, 1, 0.5)
+                    GameTooltip:AddDoubleLine(L.PLU_PORTAL_DESTINATION, bindLocation, 0.7, 0.7, 0.7, 0.5, 1, 0.5)
                 end
             end
-            
-            -- For seasonal dungeons with M+ data, show rating and best run
+
             if data.challengeModeID and (data.category == "SEASONAL_DUNGEON") then
-                GameTooltip:AddLine(" ")  -- Separator
-                
-                -- Get M+ best run info (with pcall for secret value protection)
-                local intimeInfo, overtimeInfo, bestInfo
-                local dungeonScore = 0
+                GameTooltip:AddLine(" ")
+
+                -- M+ getters return secret values in combat; cache only non-secret reads and fall back to cache.
                 local mapID = data.challengeModeID
-                
-                -- Try to get fresh data, fall back to cache if API fails (secret values)
-                local ok1, result1, result2 = pcall(C_MythicPlus.GetSeasonBestForMap, mapID)
-                if ok1 then
-                    intimeInfo = result1
-                    overtimeInfo = result2
-                    bestInfo = intimeInfo or overtimeInfo
-                    mythicPlusCache[mapID] = mythicPlusCache[mapID] or {}
-                    mythicPlusCache[mapID].bestInfo = bestInfo
-                elseif mythicPlusCache[mapID] then
-                    bestInfo = mythicPlusCache[mapID].bestInfo
-                end
-                
-                -- Get per-dungeon score/rating (with pcall for secret value protection)
-                local ok2, affixScores, score = pcall(C_MythicPlus.GetSeasonBestAffixScoreInfoForMap, mapID)
-                if ok2 then
-                    dungeonScore = score or 0
-                    mythicPlusCache[mapID] = mythicPlusCache[mapID] or {}
-                    mythicPlusCache[mapID].dungeonScore = dungeonScore
-                elseif mythicPlusCache[mapID] and mythicPlusCache[mapID].dungeonScore then
-                    dungeonScore = mythicPlusCache[mapID].dungeonScore
-                end
-                
-                -- Color rating based on score (approximate M+ colors)
-                local r, g, b
-                if dungeonScore >= 300 then
-                    r, g, b = 1, 0.5, 0  -- Orange
-                elseif dungeonScore >= 250 then
-                    r, g, b = 0.64, 0.21, 0.93  -- Purple
-                elseif dungeonScore >= 200 then
-                    r, g, b = 0, 0.44, 0.87  -- Blue
-                elseif dungeonScore >= 100 then
-                    r, g, b = 0.12, 1, 0  -- Green
-                else
-                    r, g, b = 1, 1, 1  -- White
-                end
-                
-                -- Show Rating (white label, colored value)
-                GameTooltip:AddDoubleLine("Rating:", dungeonScore, 1, 1, 1, r, g, b)
-                
+                local intimeInfo, overtimeInfo = C_MythicPlus.GetSeasonBestForMap(mapID)
+                local bestInfo = intimeInfo or overtimeInfo
+                local cacheEntry = mythicPlusCache[mapID]
                 if bestInfo then
-                    GameTooltip:AddLine(" ")  -- Spacing
-                    GameTooltip:AddLine("Best Run", 0, 1, 0)
-                    
-                    -- bestInfo fields can be secret values during encounters. issecretvalue
-                    -- guards prevent throwing arithmetic; skip the row when either is secret.
+                    mythicPlusCache[mapID] = cacheEntry or {}
+                    mythicPlusCache[mapID].bestInfo = bestInfo
+                    cacheEntry = mythicPlusCache[mapID]
+                elseif cacheEntry then
+                    bestInfo = cacheEntry.bestInfo
+                end
+
+                local _, score = C_MythicPlus.GetSeasonBestAffixScoreInfoForMap(mapID)
+                local dungeonScore = 0
+                if score and not issecretvalue(score) then
+                    mythicPlusCache[mapID] = cacheEntry or {}
+                    mythicPlusCache[mapID].dungeonScore = score
+                    dungeonScore = score
+                elseif cacheEntry and cacheEntry.dungeonScore then
+                    dungeonScore = cacheEntry.dungeonScore
+                end
+
+                local r, g, b = GetDungeonScoreColor(dungeonScore)
+                GameTooltip:AddDoubleLine(L.PLU_PORTAL_RATING, dungeonScore, 1, 1, 1, r, g, b)
+
+                if bestInfo then
+                    GameTooltip:AddLine(" ")
+                    GameTooltip:AddLine(L.PLU_PORTAL_BEST_RUN, 0, 1, 0)
+
                     local level = bestInfo.level
                     local durationSec = bestInfo.durationSec
                     if level and durationSec and not issecretvalue(level) and not issecretvalue(durationSec) then
-                        local mins = math.floor(durationSec / 60)
+                        local mins = math_floor(durationSec / 60)
                         local secs = durationSec % 60
                         local timeText = string.format("%d:%02d", mins, secs)
-                        GameTooltip:AddDoubleLine("Level " .. level, timeText, 1, 1, 1, 1, 1, 1)
-                        
+                        GameTooltip:AddDoubleLine(L.PLU_PORTAL_LEVEL_F:format(level), timeText, 1, 1, 1, 1, 1, 1)
+
                         mythicPlusCache[mapID].level = level
                         mythicPlusCache[mapID].durationSec = durationSec
-                    elseif mythicPlusCache[mapID] and mythicPlusCache[mapID].level then
-                        local mins = math.floor(mythicPlusCache[mapID].durationSec / 60)
-                        local secs = mythicPlusCache[mapID].durationSec % 60
-                        GameTooltip:AddDoubleLine("Level " .. mythicPlusCache[mapID].level, string.format("%d:%02d", mins, secs), 1, 1, 1, 1, 1, 1)
+                    elseif cacheEntry and cacheEntry.level then
+                        local mins = math_floor(cacheEntry.durationSec / 60)
+                        local secs = cacheEntry.durationSec % 60
+                        GameTooltip:AddDoubleLine(L.PLU_PORTAL_LEVEL_F:format(cacheEntry.level), string.format("%d:%02d", mins, secs), 1, 1, 1, 1, 1, 1)
                     end
                 else
-                    GameTooltip:AddLine("No best run yet", 0.5, 0.5, 0.5)
+                    GameTooltip:AddLine(L.PLU_PORTAL_NO_BEST_RUN, 0.5, 0.5, 0.5)
                 end
             end
-            
-            -- Add cooldown info if available
+
             if data.cooldown and data.cooldown > 0 then
-                GameTooltip:AddLine(" ")  -- Separator
-                local hours = math.floor(data.cooldown / 3600)
-                local mins = math.floor((data.cooldown % 3600) / 60)
+                GameTooltip:AddLine(" ")
+                local hours = math_floor(data.cooldown / 3600)
+                local mins = math_floor((data.cooldown % 3600) / 60)
                 local cooldownText
                 if hours > 0 then
-                    cooldownText = string.format("%dh %dm cooldown", hours, mins)
+                    cooldownText = L.PLU_PORTAL_CD_HM_F:format(hours, mins)
                 else
-                    cooldownText = string.format("%dm cooldown", mins)
+                    cooldownText = L.PLU_PORTAL_CD_M_F:format(mins)
                 end
                 GameTooltip:AddLine(cooldownText, 1, 0.4, 0.4)
             end
-            
+
             GameTooltip:Show()
         end
     end)
@@ -609,8 +562,7 @@ local function ConfigureIcon(icon, data, index)
     -- Size the border to match icon size (we'll scale it after setting atlas)
     local borderSize = iconSize * ICON_BORDER_SCALE  -- Slightly larger than icon for ring effect
     
-    -- Border atlas tiers: yellow for favourites, red for current-season, locked for the rest.
-    -- displayGroup is "FAVORITE" when the player has pinned this portal.
+    -- Border atlas tiers: yellow=favourite, red=current-season, grey=rest. displayGroup == "FAVORITE" means pinned.
     local borderAtlas
     if data.displayGroup == "FAVORITE" then
         borderAtlas = BORDER_ATLAS_FAVOURITE
@@ -634,12 +586,11 @@ local function ConfigureIcon(icon, data, index)
     -- FavouriteStar + DungeonScore positioning/visibility are driven by ApplyCanvasComponents.
 
     if data.iconAtlas then
-        -- Use atlas for special icons like housing
         icon.texture:SetAtlas(data.iconAtlas)
     elseif data.icon then
         icon.texture:SetTexture(data.icon)
     else
-        icon.texture:SetTexture(134400)
+        icon.texture:SetTexture(MISSING_ICON_FILE_ID)
     end
     
     if isEditModeActive then
@@ -690,14 +641,12 @@ local function ConfigureIcon(icon, data, index)
         local elapsed = duration - remaining
         local startTime = GetTime() - elapsed
         
-        -- Re-apply display settings (may be reset by Clear() on previous use)
-        -- NOTE: Swipe is disabled to avoid square overlay - only circular edge shows
-        icon.cooldown:SetDrawSwipe(false)  -- No dark overlay (it's square, not circular)
-        icon.cooldown:SetDrawEdge(true)    -- Keep the circular yellow edge marker
+        -- Re-apply after Clear() wipes them on recycled icons. Swipe off (square overlay), keep circular edge.
+        icon.cooldown:SetDrawSwipe(false)
+        icon.cooldown:SetDrawEdge(true)
         icon.cooldown:SetUseCircularEdge(true)
         icon.cooldown:SetDrawBling(false)
-        
-        -- Always set cooldown to ensure display is correct after icon recycling
+
         icon.cooldown:SetCooldown(startTime, duration)
         icon.cooldown:Show()
         
@@ -710,8 +659,7 @@ local function ConfigureIcon(icon, data, index)
         icon.texture:SetDesaturated(false)
     end
     
-    -- Snap alpha: edit mode forces alpha 1 so the user can see their layout; otherwise
-    -- use the edge-fade target so recycled pool icons don't pop-in on scroll.
+    -- Edit mode forces alpha 1 so the user can see the layout; otherwise use the edge-fade target.
     local targetAlpha
     if isEditModeActive then
         targetAlpha = 1
@@ -744,9 +692,7 @@ RefreshDock = function()
     -- Get fresh portal list (filtered - no dividers from scanner)
     local rawList = Scanner:GetOrderedList()
     
-    -- Favorites cluster via a *display group* so item.category keeps its real value.
-    -- This preserves seasonal border art + dungeon-score rendering when a seasonal
-    -- dungeon is favorited.
+    -- displayGroup clusters favourites without clobbering item.category (preserves seasonal art/score).
     for _, item in ipairs(rawList) do
         item.displayGroup = IsFavorite(item) and "FAVORITE" or item.category
     end
@@ -812,7 +758,7 @@ RefreshDock = function()
             end
 
             ConfigureIcon(icon, data, displayIndex)
-            ApplyIconCanvasComponents(icon, data, mythicPlusCache)
+            ApplyCanvasComponents(Plugin, icon, data, mythicPlusCache, IsFavorite(data))
 
             local axialPos, arcOffset = CalculatePosition(displayIndex, maxVisible, iconSize, spacing, compactness)
             icon.stableCenterPos = axialPos
@@ -837,9 +783,7 @@ RefreshDock = function()
         dock:SetHeight(dockLength)
     end
 
-    -- Semi-clamp: allow drag past screen edge, keep 30px of dock always visible.
-    -- WoW's SetClampRectInsets sign convention differs between near/far edges —
-    -- left/bottom use positive to extend outward, right/top use negative.
+    -- Semi-clamp: drag past the edge but keep CLAMP_VISIBLE_MARGIN on-screen; near/far edges flip sign.
     local marginX = math_max(0, dock:GetWidth() - CLAMP_VISIBLE_MARGIN)
     local marginY = math_max(0, dock:GetHeight() - CLAMP_VISIBLE_MARGIN)
     dock:SetClampRectInsets(marginX, -marginX, -marginY, marginY)
@@ -909,32 +853,22 @@ end
 -- [ DOCK CREATION ] ---------------------------------------------------------------------------------
 local function CreateDock()
     dock = CreateFrame("Frame", "OrbitPortalDock", UIParent)
-    dock:SetSize(44, 200)
-    dock:SetPoint("LEFT", UIParent, "LEFT", 10, 0)
-    
-    -- Apply Orbit's pixel-perfect scaling for crisp rendering across resolutions
-    if OrbitEngine.Pixel then
-        OrbitEngine.Pixel:Enforce(dock)
-    end
-    
-    dock:SetFrameStrata("MEDIUM")
-    dock:SetFrameLevel(100)
+    dock:SetSize(INITIAL_DOCK_WIDTH, INITIAL_DOCK_HEIGHT)
+    dock:SetPoint("LEFT", UIParent, "LEFT", INITIAL_DOCK_X_OFFSET, 0)
+
+    OrbitEngine.Pixel:Enforce(dock)
+
+    dock:SetFrameStrata(DOCK_FRAME_STRATA)
+    dock:SetFrameLevel(DOCK_FRAME_LEVEL)
     dock:SetClampedToScreen(true)
-    -- Permissive initial clamp so RestorePosition (which fires before RefreshDock sizes
-    -- the dock) doesn't snap a saved off-screen position back on-screen. RefreshDock
-    -- tightens these insets to the dock's actual bounds minus 30px once it runs.
-    local sw, sh = GetScreenWidth() or 2000, GetScreenHeight() or 1200
+    -- Permissive until RefreshDock tightens the insets; otherwise RestorePosition snaps saved off-screen positions.
+    local sw, sh = GetScreenWidth(), GetScreenHeight()
     dock:SetClampRectInsets(sw, -sw, -sh, sh)
     dock:EnableMouse(true)
     dock:SetMovable(true)
     dock:RegisterForDrag("LeftButton")
-    
-    -- No backdrop - dock is purely icons and dividers
-    -- Edit Mode selection highlight is provided by Orbit's Selection overlay
-    
-    -- Note: Drag handling is managed by Orbit's Selection system (AttachSettingsListener)
-    -- The Selection overlay intercepts clicks and handles dragging through EditModeSystemSelectionTemplate
-    
+
+
     -- Scroll wheel
     dock:SetScript("OnMouseWheel", OnMouseWheel)
     
@@ -955,8 +889,7 @@ local function CreateDock()
     -- Start in resting alpha state
     dock:SetAlpha(RESTING_ALPHA)
     
-    -- Enable engine-level auto-orientation during edit mode drag
-    -- Orientation callback is registered in OnLoad after dock is attached to Orbit
+    -- Engine-level auto-orient during edit-mode drag; callback is registered later in OnLoad.
     dock.orbitAutoOrient = true
 
     -- Canvas Mode: render a representative icon with DungeonScore + FavouriteStar draggable.
@@ -1057,8 +990,7 @@ function Plugin:OnLoad()
     -- Visibility Engine: centralised oocFade / opacity / hideMounted / mouseOver / showWithTarget.
     Orbit.OOCFadeMixin:ApplyOOCFade(dock, self, 1)
 
-    -- Prime the M+ caches so tooltip/score info is ready without needing the user to open
-    -- the M+ panel first. Fire-and-forget; the client dispatches them asynchronously.
+    -- Fire-and-forget prime so the first tooltip hover has score info without needing the M+ panel.
     C_MythicPlus.RequestMapInfo()
     C_MythicPlus.RequestCurrentAffixes()
     
@@ -1067,12 +999,9 @@ function Plugin:OnLoad()
     dock.systemIndex = 1
     dock.orbitNoSnap = true  -- Disable anchoring/snapping to other frames
     
-    -- Attach to Orbit's Edit Mode selection system (enables highlight + settings panel).
-    -- OrbitEngine.Frame is guaranteed by the Orbit dependency; no nil-guard needed.
     OrbitEngine.Frame:AttachSettingsListener(dock, self, 1)
 
-    -- Register orientation change callback for auto-rotation during edit mode drag.
-    -- Keeps the dock anchored to the cursor when the orientation-swap changes its size.
+    -- Keeps the dock under the cursor when an orientation swap changes its width/height mid-drag.
     OrbitEngine.Frame:RegisterOrientationCallback(dock, function(orientation)
         if currentOrientation == orientation then return end
 
@@ -1103,8 +1032,6 @@ function Plugin:OnLoad()
         OrbitEngine.FrameSelection:UpdateVisuals(dock)
     end
     
-    -- Restore saved position via Orbit's position system. Sub-addons depend on Core, so
-    -- OrbitEngine.Frame is always present; no manual SetPoint fallback needed.
     OrbitEngine.Frame:RestorePosition(dock, self, 1)
     
     -- Event handling for combat state and scanning
@@ -1142,45 +1069,38 @@ function Plugin:OnLoad()
                 pendingRefresh = true
             end
         elseif event == "PLAYER_LOGIN" then
-            -- Delay scan to ensure spell APIs are ready
-            C_Timer.After(2, function()
-                Scanner:RequestHousingData()  -- Request housing data (async)
+            -- Spell APIs aren't queryable at the instant PLAYER_LOGIN fires; small delay avoids a blank first scan.
+            C_Timer.After(INITIAL_SCAN_DELAY, function()
+                Scanner:RequestHousingData()
                 RequestRefresh()
             end)
         elseif event == "SPELLS_CHANGED" then
             RequestRefresh()
         elseif event == "PLAYER_ENTERING_WORLD" then
-            -- Fires on login and /reload - request housing data
             Scanner:RequestHousingData()
             RequestRefresh()
         elseif event == "PLAYER_HOUSE_LIST_UPDATED" then
-            -- Housing data received from async API call
             local houseInfos = ...
             Scanner:UpdateHousingCache(houseInfos)
             RequestRefresh()
         end
     end)
-    
-    -- Note: No cooldown refresh timer needed - WoW handles cooldown animation 
-    -- automatically once SetCooldown(startTime, duration) is called
-    
+
     self:RegisterStandardEvents()
     self:RegisterVisibilityEvents()
-    
-    -- Track Edit Mode state for disabling secure actions
+
     if EventRegistry then
         EventRegistry:RegisterCallback("EditMode.Enter", function()
             isEditModeActive = true
-            RequestRefresh() -- Re-configure icons with Edit Mode awareness
+            RequestRefresh()
         end, self)
-        
+
         EventRegistry:RegisterCallback("EditMode.Exit", function()
             isEditModeActive = false
-            RequestRefresh() -- Restore secure actions
+            RequestRefresh()
         end, self)
     end
-    
-    -- Initial scan - queues if in combat
+
     RequestRefresh()
 end
 
@@ -1196,21 +1116,6 @@ function Plugin:ApplySettings()
     RequestRefresh()
 end
 
-function Plugin:OnUnload()
-    -- Release tooltip to prevent memory leak
-    if tooltip and LibQTip then
-        LibQTip:Release(tooltip)
-        tooltip = nil
-    end
-    
-    -- Cancel cooldown ticker
-    if self.cooldownTicker then
-        self.cooldownTicker:Cancel()
-        self.cooldownTicker = nil
-    end
-end
-
-
 -- [ SETTINGS UI ] -----------------------------------------------------------------------------------
 function Plugin:AddSettings(dialog, systemFrame)
     local self_ = self
@@ -1221,23 +1126,22 @@ function Plugin:AddSettings(dialog, systemFrame)
     local currentTab = SB:AddSettingsTabs(schema, dialog, { "Layout", "Categories" }, "Layout")
 
     if currentTab == "Layout" then
-        table.insert(schema.controls, { type = "checkbox", key = "HideLongCooldowns", label = "Hide Long Cooldowns", default = true })
+        table.insert(schema.controls, { type = "checkbox", key = "HideLongCooldowns", label = L.PLU_PORTAL_HIDE_LONG_CD, default = true })
         table.insert(schema.controls, {
-            type = "slider", key = "FadeEffect", label = "Fade Effect",
+            type = "slider", key = "FadeEffect", label = L.PLU_PORTAL_FADE_EFFECT,
             min = 0, max = 100, step = 5, default = 20,
-            formatter = function(v) return v == 0 and "Off" or (v .. "%") end,
+            formatter = function(v) return v == 0 and L.PLU_PORTAL_FADE_OFF or L.PLU_PORTAL_FADE_PCT_F:format(v) end,
         })
-        table.insert(schema.controls, { type = "slider", key = "IconSize", label = "Icon Size", min = 24, max = 40, step = 2, default = 34 })
-        table.insert(schema.controls, { type = "slider", key = "Spacing", label = "Icon Padding", min = 0, max = 20, step = 1, default = 3 })
-        table.insert(schema.controls, { type = "slider", key = "MaxVisible", label = "Max Visible Icons", min = 3, max = 21, step = 2, default = 9 })
-        table.insert(schema.controls, { type = "slider", key = "Compactness", label = "Compactness", min = 0, max = 100, step = 1, default = 0 })
+        table.insert(schema.controls, { type = "slider", key = "IconSize", label = L.PLU_PORTAL_ICON_SIZE, min = 24, max = 40, step = 2, default = 34 })
+        table.insert(schema.controls, { type = "slider", key = "Spacing", label = L.PLU_PORTAL_ICON_PADDING, min = 0, max = 20, step = 1, default = 3 })
+        table.insert(schema.controls, { type = "slider", key = "MaxVisible", label = L.PLU_PORTAL_MAX_VISIBLE, min = 3, max = 21, step = 2, default = 9 })
+        table.insert(schema.controls, { type = "slider", key = "Compactness", label = L.PLU_PORTAL_COMPACTNESS, min = 0, max = 100, step = 1, default = 0 })
     elseif currentTab == "Categories" then
-        -- Count live portals per category so each row's label can show " (N)".
         local counts = {}
         for _, item in ipairs(Scanner:GetOrderedList()) do
             counts[item.category] = (counts[item.category] or 0) + 1
         end
-        -- FAVORITE is always on (per spec: pinned portals show even when their source category is off).
+        -- FAVORITE is always on: pinned portals show even when their source category is off.
         for _, cat in ipairs(PD.CategoryOrder) do
             local count = counts[cat] or 0
             if cat ~= "FAVORITE" and count > 0 then
@@ -1247,7 +1151,7 @@ function Plugin:AddSettings(dialog, systemFrame)
                     valueText = "|cFFFFD100" .. count .. "|r",
                     onChange = function(val)
                         local enabled = self_:GetSetting(1, "EnabledCategories") or {}
-                        enabled[cat] = val  -- true = enabled, false = disabled
+                        enabled[cat] = val
                         self_:SetSetting(1, "EnabledCategories", enabled)
                         if RefreshDock and CanInteract() then RefreshDock() end
                     end,
@@ -1263,22 +1167,20 @@ function Plugin:AddSettings(dialog, systemFrame)
     OrbitEngine.Config:Render(dialog, systemFrame, self, schema)
 end
 
--- Export for debugging
 addon.PortalDock = Plugin
 
 -- [ COMMAND HANDLER ] -------------------------------------------------------------------------------
 function Plugin:HandleCommand(cmd)
     cmd = cmd or ""
-    
+
     if cmd == "scan" then
-        -- Clear M+ cache and force refresh
         wipe(mythicPlusCache)
         if CanInteract() then
             RefreshDock()
         end
-        Orbit:Print("Portal: M+ cache cleared and dock refreshed!")
+        Orbit:Print(L.CMD_PORTAL_SCAN_DONE)
     else
-        print("|cFF00FFFFOrbit Portal Commands:|r")
-        print("  |cFF00FFFF/orbit portal scan|r - Clear M+ cache and refresh dock")
+        print(L.CMD_PORTAL_HEADER)
+        print(L.CMD_PORTAL_HELP_SCAN)
     end
 end
