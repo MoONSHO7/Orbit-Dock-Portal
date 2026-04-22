@@ -17,8 +17,27 @@
 # Data
 Core\PortalData.lua
 
-# Core
+# Pure helpers (no Portal deps)
 Core\PortalLayout.lua
 Core\PortalCanvas.lua
+
+# Runtime detection
 Core\PortalScanner.lua
+
+# State
+Core\State\PortalFavorites.lua
+Core\State\PortalCombat.lua
+
+# View
+Core\View\PortalTooltip.lua
+Core\View\PortalIcon.lua
+
+# Input
+Core\Input\PortalNavigation.lua
+
+# Settings
+Core\Settings\PortalSchema.lua
+Core\Settings\PortalCommands.lua
+
+# Plugin root — depends on all of the above
 Core\PortalDock.lua
