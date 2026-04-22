@@ -1,6 +1,4 @@
--- PortalIcon.lua: Secure-action portal icon factory + per-data configuration. One factory builds the
--- reusable icon frame (mask, sheen, cooldown, favourite star overlay); Configure binds a portal data
--- row onto an existing icon and toggles edit-mode secure attributes.
+-- PortalIcon.lua: Secure-action icon factory + per-data configure for the portal dock.
 
 local _, addon = ...
 local Orbit = Orbit
@@ -52,7 +50,7 @@ local CLICK_SOUND_PATH        = "Interface\\AddOns\\Orbit_Portal\\Audio\\switch-
 local Icon = {}
 addon.PortalIcon = Icon
 
--- MaskTexture inherits Texture but can't receive AddMaskTexture; the per-region flag blocks duplicate adds (throws).
+-- MaskTexture extends Texture but rejects AddMaskTexture with an error; per-region flag dedupes adds.
 local function ApplyCircularMaskToCooldown(cooldown, mask)
     for _, region in pairs({cooldown:GetRegions()}) do
         if region:IsObjectType("Texture")
@@ -78,7 +76,7 @@ function Icon.Create(ctx)
     icon.mask:SetAllPoints()
     icon.mask:SetTexture(CIRCULAR_MASK_PATH, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
 
-    -- ARTWORK sublevel 7: above the icon texture but below the OVERLAY border ring.
+    -- ARTWORK sublevel 7 puts the highlight above the icon texture but below the OVERLAY border.
     icon.highlight = icon:CreateTexture(nil, "ARTWORK", nil, 7)
     icon.highlight:SetAllPoints()
     icon.highlight:SetTexture("Interface\\Buttons\\WHITE8x8")
@@ -87,7 +85,6 @@ function Icon.Create(ctx)
     icon.highlight:AddMaskTexture(icon.mask)
     icon.highlight:Hide()
 
-    -- Sheen: gradient bar that sweeps across the icon on click, clipped to the circular mask.
     icon.sheen = icon:CreateTexture(nil, "ARTWORK", nil, 6)
     icon.sheen:SetAtlas(SHEEN_ATLAS)
     icon.sheen:SetBlendMode("ADD")
@@ -124,14 +121,14 @@ function Icon.Create(ctx)
     icon.cooldown:SetUseCircularEdge(true)
     icon.cooldown:SetDrawBling(false)
 
-    -- Dedicated mask so the cooldown swipe keeps a circular clip even if the icon mask is changed.
+    -- Dedicated mask so the cooldown swipe keeps a circular clip even if icon.mask is replaced.
     icon.cooldownMask = icon.cooldown:CreateMaskTexture()
     icon.cooldownMask:SetAllPoints(icon.cooldown)
     icon.cooldownMask:SetTexture(CIRCULAR_MASK_PATH, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
 
     ApplyCircularMaskToCooldown(icon.cooldown, icon.cooldownMask)
 
-    -- SetCooldown may materialise new texture regions; re-apply the mask after each call.
+    -- SetCooldown materialises new texture regions; re-apply the mask after each call.
     local originalSetCooldown = icon.cooldown.SetCooldown
     icon.cooldown.SetCooldown = function(self, start, duration, ...)
         originalSetCooldown(self, start, duration, ...)
@@ -162,7 +159,6 @@ function Icon.Create(ctx)
     icon.FavouriteStar:SetSize(STAR_SIZE, STAR_SIZE)
     icon.FavouriteStar:Hide()
 
-    -- Rendered above icon layer so it sits on top of the border.
     icon.DungeonScoreOverlay = CreateFrame("Frame", nil, icon)
     icon.DungeonScoreOverlay:SetAllPoints()
     icon.DungeonScoreOverlay:SetFrameLevel(icon:GetFrameLevel() + (Orbit.Constants.Levels and Orbit.Constants.Levels.IconOverlay or 5))
@@ -175,7 +171,6 @@ function Icon.Create(ctx)
     icon.border:SetPoint("CENTER")
 
     icon:SetScript("PreClick", function(self, button)
-        -- Shift+Right-click: toggle favorite (non-secure, no type2 attribute set)
         if button == "RightButton" and IsShiftKeyDown() then
             local data = self.portalData
             if data then
@@ -184,7 +179,7 @@ function Icon.Create(ctx)
             end
             return
         end
-        -- Random hearthstone re-roll: combat lockdown blocks SetAttribute, so keep the last selection.
+        -- Random hearthstone re-roll: skip under lockdown — SetAttribute is protected, keep last pick.
         local data = self.portalData
         if data and data.type == "random_hearthstone" and data.availableHearthstones and not InCombatLockdown() then
             local available = data.availableHearthstones
@@ -218,8 +213,7 @@ function Icon.Create(ctx)
     icon:SetScript("OnLeave", function(self)
         GameTooltip:Hide()
         if self.highlight then self.highlight:Hide() end
-        -- Check if mouse left the dock entirely (not just moved to another icon). Mouse can leave
-        -- via an icon without the dock's own OnLeave firing, so we release the capture frame here too.
+        -- Mouse can exit the dock via an icon without dock:OnLeave firing, so release capture here.
         if dock and not dock:IsMouseOver() then
             state.isMouseOver = false
             addon.PortalNavigation.HideSearch()
@@ -230,7 +224,6 @@ function Icon.Create(ctx)
     return icon
 end
 
--- Bind a portal data row onto a pooled icon frame. Updates visuals and secure attributes.
 function Icon.Configure(ctx, icon, data, index)
     local plugin = ctx.plugin
     local state = ctx.state
@@ -245,7 +238,7 @@ function Icon.Configure(ctx, icon, data, index)
 
     local borderSize = iconSize * ICON_BORDER_SCALE
 
-    -- Border atlas tiers: yellow=favourite, red=current-season, grey=rest.
+    -- Border tiers: yellow=favourite, red=seasonal, grey=other.
     local borderAtlas
     if data.displayGroup == "FAVORITE" then
         borderAtlas = BORDER_ATLAS_FAVOURITE
@@ -318,7 +311,7 @@ function Icon.Configure(ctx, icon, data, index)
         local elapsed = duration - data.cooldown
         local startTime = GetTime() - elapsed
 
-        -- Re-apply after Clear() wipes them on recycled icons. Swipe off (square overlay), keep circular edge.
+        -- Re-apply after Clear() wipes the flags on recycled icons.
         icon.cooldown:SetDrawSwipe(false)
         icon.cooldown:SetDrawEdge(true)
         icon.cooldown:SetUseCircularEdge(true)
@@ -332,13 +325,13 @@ function Icon.Configure(ctx, icon, data, index)
         icon.texture:SetDesaturated(false)
     end
 
-    -- Edit mode forces alpha 1 so the user can see the layout; otherwise use the edge-fade target.
+    -- Edit mode forces alpha 1 so the layout stays visible while repositioning.
     local targetAlpha
     if state.isEditModeActive then
         targetAlpha = 1
     else
         local fadeAmount = plugin:GetSetting(1, "FadeEffect")
-        -- Legacy boolean values: true = classic cosine (20), false/nil = off (0).
+        -- Legacy boolean values: true = classic cosine (20), false/nil = off.
         if fadeAmount == true then fadeAmount = FADE_DEFAULT
         elseif fadeAmount == false then fadeAmount = 0 end
         local maxVisibleSetting = plugin:GetSetting(1, "MaxVisible")

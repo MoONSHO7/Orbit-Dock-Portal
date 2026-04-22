@@ -4,7 +4,7 @@ dock-style portal UI with arc-wrap layout and edge-fade falloff. external plugin
 
 ## purpose
 
-replaces the need for portal addons with a compact dock showing available teleports, portals, hearthstones, toys, and housing. icons are laid out along a configurable arc and fade toward the edges; shift+scroll jumps between categories. while hovering the dock, typing a keyword (short code like `MT` or substring of the portal name) scrolls the match onto the icon slot nearest the cursor — keybindings keep firing normally, and the buffer clears after ~1s of idle.
+replaces the need for portal addons with a compact dock showing available teleports, portals, hearthstones, toys, and housing. icons are laid out along a configurable arc and fade toward the edges; shift+scroll jumps between categories. while hovering the dock, typing a keyword (short code like `MT` or substring of the portal name) scrolls the match onto the icon slot nearest the cursor — printable keys are consumed by search so typing `M` doesn't also open the map, but ESC/Enter/F-keys/arrows/modifiers and any key while an editbox is focused still pass through. the search buffer clears after ~1s of idle or when the mouse leaves.
 
 ## layout
 
@@ -41,7 +41,7 @@ Core/
 | State/PortalCombat.lua | `CanInteract` gate + `UpdateState(ctx)` reconciler called on `PLAYER_REGEN_*` / `ENCOUNTER_*`. |
 | View/PortalIcon.lua | `Create(ctx)` builds the reusable secure action button; `Configure(ctx, icon, data, index)` binds a portal row onto it. |
 | View/PortalTooltip.lua | `Show(ctx, anchor, data)` — assembles the hover tooltip including M+ season-best with `issecretvalue()` guards. |
-| Input/PortalNavigation.lua | `Install(ctx)` wires `OnMouseWheel` (normal + shift-category-jump) and `OnChar` keyword search; `ClearSearchBuffer()` called from dock `OnLeave`. |
+| Input/PortalNavigation.lua | `Install(ctx)` wires `OnMouseWheel` (normal + shift-category-jump) and creates a hidden capture-frame child of the dock for typeahead search. `ShowSearch`/`HideSearch` gate capture by hover. `RestorePropagationDefault` re-seats propagation after a combat-time `/reload`. `ClearSearchBuffer` called on `OnLeave`. |
 | Settings/PortalSchema.lua | `Build(plugin, dialog, systemFrame, ctx)` — Layout + Categories tabs. |
 | Settings/PortalCommands.lua | `Handle(ctx, cmd)` — `/orbit portal scan` and help. |
 

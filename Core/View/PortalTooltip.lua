@@ -1,5 +1,4 @@
--- PortalTooltip.lua: GameTooltip assembly for portal icons. Pulls M+ season-best + affix score via
--- C_MythicPlus and caches non-secret reads so in-combat hovers still display data.
+-- PortalTooltip.lua: GameTooltip assembly for portal icons, with M+ season-best caching.
 
 local _, addon = ...
 local L = Orbit.L

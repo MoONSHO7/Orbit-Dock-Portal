@@ -1,10 +1,4 @@
--- PortalNavigation.lua: Scroll + keyword-search input handlers for the dock.
--- Scroll: wheel moves one item; shift+wheel jumps to the first item of the adjacent category.
--- Search: typing while hovering scrolls the best-matching portal onto the slot nearest the cursor.
--- A dedicated hidden child frame captures keyboard input only while the mouse is over the dock.
--- While hovering: printable keys are consumed (M searches, doesn't open the map); ESC/Enter/arrows/
--- F-keys/modifiers and any key while an editbox has focus propagate so game-critical input works.
--- While not hovering: capture frame is hidden → no interception whatsoever.
+-- PortalNavigation.lua: Wheel scroll + type-to-search input for the dock.
 
 local _, addon = ...
 
@@ -24,9 +18,9 @@ addon.PortalNavigation = Navigation
 
 local searchBuffer = ""
 local searchBufferExpiry = 0
-local searchFrame = nil
+local searchFrame
 
--- Score a portal against a lowercased needle. Higher = better match; 0 = no match.
+-- Tiered matcher: exact-short > short-prefix > name-prefix > short-substring > name-substring.
 local function ScoreMatch(data, needle)
     if not data then return 0 end
     local short = data.short and data.short:lower()
@@ -52,7 +46,7 @@ local function FindBestMatchIndex(portalList, needle)
     return bestIndex
 end
 
--- 0-based display slot whose icon center is closest to the cursor.
+-- Returns a 0-based displayIndex (matches RefreshDock's slot loop), not a 1-based list index.
 local function GetCursorDisplaySlot(visibleIcons)
     if #visibleIcons == 0 then return 0 end
     local cursorX, cursorY = GetCursorPosition()
@@ -92,7 +86,6 @@ function Navigation.Install(ctx)
             local currentCategory = portalList[currentCenterIndex] and portalList[currentCenterIndex].displayGroup
 
             if delta > 0 then
-                -- Scroll UP (previous category): search backwards for a different category, then find its first item.
                 for offset = 1, totalIcons - 1 do
                     local checkIndex = ((currentCenterIndex - 1 - offset) % totalIcons) + 1
                     local item = portalList[checkIndex]
@@ -112,7 +105,6 @@ function Navigation.Install(ctx)
                     end
                 end
             else
-                -- Scroll DOWN (next category): first item of the next different category becomes the new center.
                 for offset = 1, totalIcons - 1 do
                     local checkIndex = ((currentCenterIndex - 1 + offset) % totalIcons) + 1
                     local item = portalList[checkIndex]
@@ -154,12 +146,9 @@ function Navigation.Install(ctx)
 
     dock:SetScript("OnMouseWheel", OnMouseWheel)
 
-    -- Dedicated hidden capture frame. Parented to the dock so combat-hide of the dock hides this too.
-    -- Keyboard stays enabled on the capture frame always; Show/Hide controls whether it actually
-    -- receives events (hidden frames get no scripts). While shown, the per-key OnKey handler decides
-    -- whether to consume: single-char printable keys are consumed (so M doesn't open the map while
-    -- the user is typing a keyword), but special keys (ESCAPE, ENTER, F-keys, arrows, modifiers)
-    -- and any key while a chat/editbox has focus are propagated so game-critical input still works.
+    -- Child of the dock so a combat dock:Hide() also hides this; Show/Hide is the only capture gate.
+    -- Single-char keys are consumed so letter bindings (e.g. M = map) don't fire while searching;
+    -- everything else propagates so ESC/Enter/bindings and any editbox input still work.
     searchFrame = CreateFrame("Frame", nil, dock)
     searchFrame:EnableKeyboard(true)
     if not InCombatLockdown() then
@@ -169,12 +158,10 @@ function Navigation.Install(ctx)
 
     local function OnKey(self, key)
         if InCombatLockdown() then return end
-        if GetCurrentKeyBoardFocus() then
+        if GetCurrentKeyBoardFocus() or not (key and #key == 1) then
             self:SetPropagateKeyboardInput(true)
-        elseif key and #key == 1 then
-            self:SetPropagateKeyboardInput(false)
         else
-            self:SetPropagateKeyboardInput(true)
+            self:SetPropagateKeyboardInput(false)
         end
     end
     searchFrame:SetScript("OnKeyDown", OnKey)
@@ -182,18 +169,15 @@ function Navigation.Install(ctx)
     searchFrame:SetScript("OnChar", OnSearchChar)
 end
 
--- Called from dock:OnEnter — show the capture frame so typing hits OnSearchChar.
 function Navigation.ShowSearch()
     if searchFrame then searchFrame:Show() end
 end
 
--- Called from dock:OnLeave / icon:OnLeave — hide the capture frame so bindings / chat are untouched.
 function Navigation.HideSearch()
     if searchFrame then searchFrame:Hide() end
 end
 
--- Called from PortalCombat on combat exit to re-establish the propagation default if /reload
--- happened during lockdown and Navigation.Install had to skip the initial SetPropagateKeyboardInput.
+-- Re-seat propagation default after a /reload that happened under combat lockdown.
 function Navigation.RestorePropagationDefault()
     if searchFrame and not InCombatLockdown() then
         searchFrame:SetPropagateKeyboardInput(true)

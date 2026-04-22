@@ -1,5 +1,4 @@
--- PortalCombat.lua: Combat / encounter interaction gating. All protected frame ops route through
--- CanInteract(); UpdateState(ctx) reconciles dock visibility on REGEN_ENABLED/DISABLED.
+-- PortalCombat.lua: Combat / encounter interaction gating for the portal dock.
 
 local _, addon = ...
 
@@ -24,21 +23,18 @@ function Combat.UpdateState(ctx)
     local inCombatOrEncounter = InCombatLockdown() or C_InstanceEncounter.IsEncounterInProgress()
 
     if inCombatOrEncounter then
-        -- REGEN_DISABLED fires before lockdown; only Hide() while the secure call is still legal.
+        -- REGEN_DISABLED fires just before lockdown; only Hide() while the secure call is still legal.
         if not InCombatLockdown() then
             dock:Hide()
         end
         state.isEditModeActive = false
         state.isMouseOver = false
-        -- Capture frame is a child of the dock; hiding the dock hides it too, so bindings stay free.
         addon.PortalNavigation.HideSearch()
     else
         dock:Show()
         dock:SetAlpha(RESTING_ALPHA)
         dock:EnableMouse(true)
-        -- Covers /reload-during-combat: Install had to skip SetPropagateKeyboardInput under lockdown.
         addon.PortalNavigation.RestorePropagationDefault()
-        -- Restore capture if the mouse is still parked over the dock from before combat.
         if dock:IsMouseOver() then
             state.isMouseOver = true
             addon.PortalNavigation.ShowSearch()

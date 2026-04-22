@@ -1,5 +1,4 @@
--- PortalDock.lua: Portal plugin root — registration, shared state, dock frame, RefreshDock
--- orchestration, canvas preview, lifecycle. Per-concern modules live in Core/{State,View,Input,Settings}.
+-- PortalDock.lua: Plugin root — registration, shared ctx/state, dock frame, RefreshDock, lifecycle.
 
 local _, addon = ...
 
@@ -36,9 +35,7 @@ local Plugin = Orbit:RegisterPlugin("Portal Dock", SYSTEM_ID, {
     },
 })
 
--- Users double-click the dock to reposition DungeonScore + FavouriteStar.
 Plugin.canvasMode = true
-
 addon.PortalDock = Plugin
 
 -- [ CONSTANTS ] -------------------------------------------------------------------------------------
@@ -65,8 +62,8 @@ local BORDER_ATLAS_SEASONAL    = "talents-node-choiceflyout-circle-red"
 local BORDER_ATLAS_DEFAULT     = "talents-node-choiceflyout-circle-gray"
 
 -- [ STATE ] -----------------------------------------------------------------------------------------
-local dock = nil
-local iconPool = nil
+local dock
+local iconPool
 local currentOrientation = "LEFT"
 
 local state = {
@@ -79,11 +76,7 @@ local state = {
     mythicPlusCache = {},
 }
 
--- Shared context passed to every extracted module. RefreshDock / RequestRefresh are filled in below.
-local ctx = {
-    plugin = Plugin,
-    state = state,
-}
+local ctx = { plugin = Plugin, state = state }
 addon.PortalDockContext = ctx
 
 -- [ ORIENTATION ] -----------------------------------------------------------------------------------
@@ -97,7 +90,6 @@ local function DetectOrientation()
     local distToTop = screenHeight - dockCenterY
     local distToBottom = dockCenterY
     local minDist = math_min(distToLeft, distToRight, distToTop, distToBottom)
-    -- Arc faces toward the center of the screen.
     if minDist == distToLeft then return "LEFT"
     elseif minDist == distToRight then return "RIGHT"
     elseif minDist == distToTop then return "TOP"
@@ -108,7 +100,7 @@ local function IsHorizontal()
     return currentOrientation == "TOP" or currentOrientation == "BOTTOM"
 end
 
--- Icons are CENTER-anchored so scaling expands equally; axis is inset iconSize/2 from the dock edge.
+-- CENTER-anchored so scale expands symmetrically; axis inset by iconSize/2 from the dock edge.
 local function PositionIconForOrientation(icon, dockFrame, arcOffset, centerPos, iconSize)
     icon:ClearAllPoints()
     local halfIcon = iconSize / 2
@@ -143,7 +135,8 @@ local function RefreshDock()
 
     local rawList = Scanner:GetOrderedList()
 
-    -- displayGroup clusters favourites without clobbering item.category (preserves seasonal art/score).
+    -- displayGroup pins favourites into the FAVORITE group without clobbering item.category
+    -- (category still drives seasonal ring colour + M+ score rendering).
     for _, item in ipairs(rawList) do
         item.displayGroup = Favorites.IsFavorite(Plugin, item) and "FAVORITE" or item.category
     end
@@ -155,14 +148,12 @@ local function RefreshDock()
         local cooldownRemaining = item.cooldown or 0
         local isCurrentSeason = item.category == "SEASONAL_DUNGEON" or item.category == "SEASONAL_RAID"
         local cooldownPass = not hideLongCooldowns or isCurrentSeason or cooldownRemaining < LONG_COOLDOWN_THRESHOLD
-        -- Favorites always show. Other items pass when their real category is enabled.
         local categoryPass = item.displayGroup == "FAVORITE" or enabledCategories[item.category] ~= false
         if cooldownPass and categoryPass then
             table.insert(state.portalList, item)
         end
     end
 
-    -- Sort by CategoryOrder priority using displayGroup (clusters favorites together).
     local catPriority = {}
     for i, cat in ipairs(PD.CategoryOrder) do catPriority[cat] = i end
     local orderIndex = {}
@@ -226,7 +217,7 @@ local function RefreshDock()
         dock:SetHeight(dockLength)
     end
 
-    -- Semi-clamp: drag past the edge but keep CLAMP_VISIBLE_MARGIN on-screen; near/far edges flip sign.
+    -- Semi-clamp: drag past the edge but keep CLAMP_VISIBLE_MARGIN on-screen.
     local marginX = math_max(0, dock:GetWidth() - CLAMP_VISIBLE_MARGIN)
     local marginY = math_max(0, dock:GetHeight() - CLAMP_VISIBLE_MARGIN)
     dock:SetClampRectInsets(marginX, -marginX, -marginY, marginY)
@@ -256,7 +247,8 @@ local function CreateDock()
     dock:SetFrameStrata(DOCK_FRAME_STRATA)
     dock:SetFrameLevel(DOCK_FRAME_LEVEL)
     dock:SetClampedToScreen(true)
-    -- Permissive until RefreshDock tightens the insets; otherwise RestorePosition snaps saved off-screen positions.
+    -- Permissive insets until RefreshDock tightens them; otherwise RestorePosition would snap
+    -- a saved off-screen position back on-screen before we have real dimensions.
     local sw, sh = GetScreenWidth(), GetScreenHeight()
     dock:SetClampRectInsets(sw, -sw, -sh, sh)
     dock:EnableMouse(true)
@@ -266,8 +258,6 @@ local function CreateDock()
     ctx.dock = dock
     addon.PortalNavigation.Install(ctx)
 
-    -- Keyboard capture is owned by PortalNavigation's hidden child frame; the dock itself never
-    -- receives key events. Hover toggles the capture frame's visibility so bindings stay free.
     dock:SetScript("OnEnter", function(self)
         state.isMouseOver = true
         addon.PortalNavigation.ShowSearch()
@@ -284,16 +274,13 @@ local function CreateDock()
     end)
 
     dock:SetAlpha(RESTING_ALPHA)
-
-    -- Engine-level auto-orient during edit-mode drag; callback is registered later in OnLoad.
     dock.orbitAutoOrient = true
 
-    -- Canvas Mode: render a representative icon with DungeonScore + FavouriteStar draggable.
     function dock:CreateCanvasPreview(options)
         options = options or {}
         local iconSize = Plugin:GetSetting(1, "IconSize")
         local iconTexture = QUESTIONMARK_ICON
-        -- Prefer a seasonal dungeon icon so DungeonScore has something meaningful to render.
+        -- Prefer a seasonal dungeon icon so DungeonScore has real-looking content to render.
         for _, item in ipairs(state.portalList or {}) do
             if item.category == "SEASONAL_DUNGEON" and item.icon then
                 iconTexture = item.icon
@@ -321,7 +308,6 @@ local function CreateDock()
         iconTex:SetTexture(iconTexture)
         iconTex:AddMaskTexture(mask)
 
-        -- Seasonal icons get the red ring; fallback icon gets the grey ring.
         local borderAtlas = iconTexture ~= QUESTIONMARK_ICON and BORDER_ATLAS_SEASONAL or BORDER_ATLAS_DEFAULT
         local borderTex = preview:CreateTexture(nil, "OVERLAY")
         borderTex:SetAtlas(borderAtlas, false)
@@ -337,7 +323,6 @@ local function CreateDock()
             { key = "DungeonShort", preview = "AA",  anchorX = "CENTER", anchorY = "TOP",    offsetX = 0, offsetY = 2  },
         }, savedPositions, fontPath)
 
-        -- Favourite Star: render the actual atlas as a draggable texture (not a text glyph).
         local CreateDraggableComponent = OrbitEngine.CanvasMode and OrbitEngine.CanvasMode.CreateDraggableComponent
         if CreateDraggableComponent then
             local AnchorToCenter = OrbitEngine.PositionUtils.AnchorToCenter
@@ -381,10 +366,9 @@ function Plugin:OnLoad()
     dock = CreateDock()
     self.frame = dock
 
-    -- Visibility Engine: centralised oocFade / opacity / hideMounted / mouseOver / showWithTarget.
     Orbit.OOCFadeMixin:ApplyOOCFade(dock, self, 1)
 
-    -- Fire-and-forget prime so the first tooltip hover has score info without needing the M+ panel.
+    -- Prime M+ data so the first seasonal-dungeon tooltip has score/best-run without opening the M+ panel.
     C_MythicPlus.RequestMapInfo()
     C_MythicPlus.RequestCurrentAffixes()
 
@@ -394,7 +378,7 @@ function Plugin:OnLoad()
 
     OrbitEngine.Frame:AttachSettingsListener(dock, self, 1)
 
-    -- Keeps the dock under the cursor when an orientation swap changes its width/height mid-drag.
+    -- Orientation flips swap width/height, so re-anchor to keep the dock under the cursor mid-drag.
     OrbitEngine.Frame:RegisterOrientationCallback(dock, function(orientation)
         if currentOrientation == orientation then return end
 
@@ -460,7 +444,7 @@ function Plugin:OnLoad()
                 state.pendingRefresh = true
             end
         elseif event == "PLAYER_LOGIN" then
-            -- Spell APIs aren't queryable at the instant PLAYER_LOGIN fires; small delay avoids a blank first scan.
+            -- Spell APIs return empty at the PLAYER_LOGIN instant; a small delay avoids a blank first scan.
             C_Timer.After(INITIAL_SCAN_DELAY, function()
                 Scanner:RequestHousingData()
                 RequestRefresh()
