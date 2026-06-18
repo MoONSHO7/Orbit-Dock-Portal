@@ -419,17 +419,3 @@ PD.TOY = {
     { itemID = 52251, name = "Jaina's Locket", destination = "Dalaran (Northrend)", type = "item" },
 }
 
--- [ HELPER: Check if a spell is in current season ] -------------------------------------------------
-function PD:IsCurrentSeasonDungeon(spellID)
-    for _, id in ipairs(self.CURRENT_SEASON_DUNGEONS) do
-        if id == spellID then return true end
-    end
-    return false
-end
-
-function PD:IsCurrentSeasonRaid(spellID)
-    for _, id in ipairs(self.CURRENT_SEASON_RAIDS) do
-        if id == spellID then return true end
-    end
-    return false
-end

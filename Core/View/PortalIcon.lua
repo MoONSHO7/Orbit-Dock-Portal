@@ -68,9 +68,11 @@ function Icon.Create(ctx)
     local Favorites = addon.PortalFavorites
     local Tooltip = addon.PortalTooltip
 
-    local icon = CreateFrame("Button", nil, dock, "SecureActionButtonTemplate")
+    -- Parented to content (not dock) so the reveal animation carries the icons.
+    local icon = CreateFrame("Button", nil, ctx.content, "SecureActionButtonTemplate")
     icon:RegisterForClicks("AnyUp", "AnyDown")
     icon:SetSize(INITIAL_ICON_SIZE, INITIAL_ICON_SIZE)
+    Orbit.Engine.Pixel:Enforce(icon)
 
     icon.mask = icon:CreateMaskTexture()
     icon.mask:SetAllPoints()
@@ -204,9 +206,12 @@ function Icon.Create(ctx)
     end)
 
     icon:SetScript("OnEnter", function(self)
+        -- Slide carries icons outside the fixed dock zone; an icon sweeping under the cursor there must not pump reveal, or it fights conceal into a flicker. Gate on the static (padded) summon zone, not the moving icon.
+        if not ctx.IsCursorOverDock() then return end
         if self.highlight then self.highlight:Show() end
         state.isMouseOver = true
         dock:SetAlpha(1)
+        addon.PortalReveal.Reveal(ctx)
         if self.portalData then Tooltip.Show(ctx, self, self.portalData) end
     end)
 
@@ -214,10 +219,11 @@ function Icon.Create(ctx)
         GameTooltip:Hide()
         if self.highlight then self.highlight:Hide() end
         -- Mouse can exit the dock via an icon without dock:OnLeave firing, so release capture here.
-        if dock and not dock:IsMouseOver() then
+        if not ctx.IsCursorOverDock() then
             state.isMouseOver = false
             addon.PortalNavigation.HideSearch()
             dock:SetAlpha(1)
+            addon.PortalReveal.Conceal(ctx)
         end
     end)
 
@@ -236,7 +242,8 @@ function Icon.Configure(ctx, icon, data, index)
     local iconSize = plugin:GetSetting(1, "IconSize")
     icon:SetSize(iconSize, iconSize)
 
-    local borderSize = iconSize * ICON_BORDER_SCALE
+    local iconScale = icon:GetEffectiveScale()
+    local borderSize = Orbit.Engine.Pixel:Snap(iconSize * ICON_BORDER_SCALE, iconScale)
 
     -- Border tiers: yellow=favourite, red=seasonal, grey=other.
     local borderAtlas
@@ -251,12 +258,12 @@ function Icon.Configure(ctx, icon, data, index)
     icon.border:SetSize(borderSize, borderSize)
 
     if icon.sheen then
-        local sheenW = iconSize * SHEEN_WIDTH_SCALE
+        local sheenW = Orbit.Engine.Pixel:Snap(iconSize * SHEEN_WIDTH_SCALE, iconScale)
         icon.sheen:SetSize(sheenW, iconSize)
         icon.sheen:ClearAllPoints()
         icon.sheen:SetPoint("RIGHT", icon, "LEFT", 0, 0)
         if icon.sheenTranslate then
-            icon.sheenTranslate:SetOffset(iconSize + sheenW, 0)
+            icon.sheenTranslate:SetOffset(Orbit.Engine.Pixel:Snap(iconSize + sheenW, iconScale), 0)
         end
     end
 
@@ -331,12 +338,12 @@ function Icon.Configure(ctx, icon, data, index)
         targetAlpha = 1
     else
         local fadeAmount = plugin:GetSetting(1, "FadeEffect")
-        -- Legacy boolean values: true = classic cosine (20), false/nil = off.
+        -- Legacy boolean values: true = default fade, false/nil = off.
         if fadeAmount == true then fadeAmount = FADE_DEFAULT
         elseif fadeAmount == false then fadeAmount = 0 end
         local maxVisibleSetting = plugin:GetSetting(1, "MaxVisible")
         local normMaxVisible = Layout.NormalizeMaxVisible(maxVisibleSetting, #state.portalList)
-        targetAlpha = Layout.EdgeAlphaForIndex(index, normMaxVisible, fadeAmount)
+        targetAlpha = Layout.FadeAlphaForIndex(index, normMaxVisible, fadeAmount)
     end
     icon.currentAlpha = targetAlpha
     icon:SetAlpha(targetAlpha)

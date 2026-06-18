@@ -1,10 +1,10 @@
 # orbit portal
 
-dock-style portal UI with arc-wrap layout and edge-fade falloff. external plugin — depends on orbit core.
+dock-style portal UI with arc-wrap layout, centre-out edge-fade, and a hover reveal animation. external plugin — depends on orbit core.
 
 ## purpose
 
-replaces the need for portal addons with a compact dock showing available teleports, portals, hearthstones, toys, and housing. icons are laid out along a configurable arc and fade toward the edges; shift+scroll jumps between categories. while hovering the dock, typing a keyword (short code like `MT` or substring of the portal name) scrolls the match onto the icon slot nearest the cursor — printable keys are consumed by search so typing `M` doesn't also open the map, but ESC/Enter/F-keys/arrows/modifiers and any key while an editbox is focused still pass through. the search buffer clears after ~1s of idle or when the mouse leaves.
+replaces the need for portal addons with a compact dock showing available teleports, portals, hearthstones, toys, and housing. icons are laid out along a configurable arc and fade outward from the centre (centre icon full, each step out dimmer by the slider's per-step rate); shift+scroll jumps between categories. while hovering the dock, typing a keyword (short code like `MT` or substring of the portal name) scrolls the match onto the icon slot nearest the cursor — printable keys are consumed by search so typing `M` doesn't also open the map, but ESC/Enter/F-keys/arrows/modifiers and any key while an editbox is focused still pass through. the search buffer clears after ~1s of idle or when the mouse leaves.
 
 ## layout
 
@@ -21,11 +21,12 @@ Core/
   View/
     PortalIcon.lua                  secure icon factory + per-data configure
     PortalTooltip.lua               hover tooltip (M+ season best, cooldowns)
+    PortalReveal.lua                hover reveal/conceal animation (Off / Slide / Fade)
   Input/
     PortalNavigation.lua            scroll + keyword search handlers
   Settings/
     PortalSchema.lua                settings UI schema builder
-    PortalCommands.lua              slash command handler
+    PortalCommands.lua              portal rescan action (triggered from Spotlight)
 ```
 
 ## files
@@ -34,16 +35,17 @@ Core/
 |---|---|
 | PortalData.lua | static portal/toy/hearthstone definitions. category order, seasonal dungeon/raid lists, localized category names. |
 | PortalScanner.lua | runtime detection of available portals. scans spells, toys, items, housing, and cooldowns. |
-| PortalLayout.lua | pure layout math — arc-wrap positioning and edge-fade alpha. stateless functions only. |
+| PortalLayout.lua | pure layout math — arc-wrap positioning and centre-out fade alpha (centre 100%, dimming per-step outward). stateless functions only. |
 | PortalCanvas.lua | Canvas Mode per-icon apply for DungeonScore, DungeonShort, Timer, FavouriteStar. shared `GetDungeonScoreColor` helper. |
 | PortalDock.lua | plugin root. plugin registration, shared state + `ctx`, orientation detection, dock frame, canvas preview, `RefreshDock` orchestration, lifecycle + event fan-out. |
 | State/PortalFavorites.lua | `IsFavorite` / `Toggle` / `GetKey` — favourite persistence through `Plugin:GetSetting/SetSetting`. |
 | State/PortalCombat.lua | `CanInteract` gate + `UpdateState(ctx)` reconciler called on `PLAYER_REGEN_*` / `ENCOUNTER_*`. |
-| View/PortalIcon.lua | `Create(ctx)` builds the reusable secure action button; `Configure(ctx, icon, data, index)` binds a portal row onto it. |
+| View/PortalIcon.lua | `Create(ctx)` builds the reusable secure action button (parented to `ctx.content`); `Configure(ctx, icon, data, index)` binds a portal row onto it. |
 | View/PortalTooltip.lua | `Show(ctx, anchor, data)` — assembles the hover tooltip including M+ season-best with `issecretvalue()` guards. |
+| View/PortalReveal.lua | `Apply`/`Reveal`/`Conceal`/`OnRepaint(ctx)` — the `Animation` setting (Off / Slide / Fade). Animates only `ctx.content` (alpha + translation toward the nearest screen edge) so the dock stays a fixed hover-summon zone; the tween snaps and stops under combat lockdown (dock is hidden in combat). |
 | Input/PortalNavigation.lua | `Install(ctx)` wires `OnMouseWheel` (normal + shift-category-jump) and creates a hidden capture-frame child of the dock for typeahead search. `ShowSearch`/`HideSearch` gate capture by hover. `RestorePropagationDefault` re-seats propagation after a combat-time `/reload`. `ClearSearchBuffer` called on `OnLeave`. |
 | Settings/PortalSchema.lua | `Build(plugin, dialog, systemFrame, ctx)` — Layout + Categories tabs. |
-| Settings/PortalCommands.lua | `Handle(ctx, cmd)` — `/orbit portal scan` and help. |
+| Settings/PortalCommands.lua | `Handle(ctx, cmd)` — portal rescan (`scan`): wipes the M+ cache and refreshes the dock. Triggered from Spotlight via `PortalDock:HandleCommand("scan")`. |
 
 ## architecture
 
@@ -74,6 +76,9 @@ graph TD
 
     Tooltip --> Icon
     Icon --> Dock
+    Reveal[View/PortalReveal] --> Dock
+    Reveal --> Icon
+    Combat --> Reveal
     Nav --> Dock
     Schema --> Dock
     Commands --> Dock
@@ -93,17 +98,20 @@ Extracted modules receive a single `ctx` table that `PortalDock.lua` owns and ex
 ctx = {
     plugin        = Plugin,        -- the registered Plugin object
     dock          = <Frame>,       -- populated once CreateDock runs
+    content       = <Frame>,       -- icon-bearing child of dock; the reveal animation (PortalReveal) moves/fades this, not the dock
     state = {
         portalList, visibleIcons, scrollOffset,
         isMouseOver, isEditModeActive,
         pendingRefresh, mythicPlusCache,
     },
-    RefreshDock   = <function>,    -- rebuild and repaint (gated by combat)
-    RequestRefresh = <function>,   -- refresh now or defer to REGEN_ENABLED
+    RefreshDock   = <function>,    -- full rescan + filter + sort + paint (gated by combat). Use on set-change events (category toggle, portal rescan, SPELLS_CHANGED, PLAYER_ENTERING_WORLD).
+    RepaintIcons  = <function>,    -- paint-only from cached state.portalList — NO Scanner call. Use on scroll / type-to-search / cooldown ticker (set-stable hot paths).
+    RequestRefresh = <function>,   -- refresh now or defer to REGEN_ENABLED (calls RefreshDock when combat clears).
+    IsCursorOverDock = <function>, -- cursor over the padded hover-summon zone (hit rect enlarged by HOVER_HIT_INSET). Single source of truth for reveal/conceal so the moving Slide icons never pump hover state.
 }
 ```
 
-Modules that need shared state read/write through `ctx.state`. Modules that need to trigger a rebuild call `ctx.RefreshDock()` / `ctx.RequestRefresh()`.
+Modules that need shared state read/write through `ctx.state`. Modules that need to trigger a rebuild call `ctx.RefreshDock()` (set-change) or `ctx.RepaintIcons()` (set-stable navigation) or `ctx.RequestRefresh()` (event handlers that may fire in combat).
 
 ## orbit core api surface
 

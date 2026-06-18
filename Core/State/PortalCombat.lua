@@ -35,7 +35,7 @@ function Combat.UpdateState(ctx)
         dock:SetAlpha(RESTING_ALPHA)
         dock:EnableMouse(true)
         addon.PortalNavigation.RestorePropagationDefault()
-        if dock:IsMouseOver() then
+        if ctx.IsCursorOverDock() then
             state.isMouseOver = true
             addon.PortalNavigation.ShowSearch()
         end

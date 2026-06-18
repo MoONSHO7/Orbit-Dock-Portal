@@ -22,8 +22,9 @@ local Plugin = Orbit:RegisterPlugin("Portal Dock", SYSTEM_ID, {
         Spacing = 5,
         MaxVisible = 9,
         HideLongCooldowns = true,
-        FadeEffect = 10,
+        FadeEffect = 0,
         Compactness = 0,
+        Animation = 0,
         Favorites = {},
         ComponentPositions = {
             DungeonScore  = { anchorX = "CENTER", anchorY = "BOTTOM", offsetX = 0, offsetY = -2, justifyH = "CENTER" },
@@ -44,12 +45,16 @@ local RESTING_ALPHA            = 1.0
 local INITIAL_DOCK_WIDTH       = 44
 local INITIAL_DOCK_HEIGHT      = 200
 local INITIAL_DOCK_X_OFFSET    = 10
+local HOVER_HIT_INSET          = 10
 local DOCK_FRAME_LEVEL         = 100
 local DOCK_FRAME_STRATA        = "MEDIUM"
 local INITIAL_SCAN_DELAY       = 2
+local EDIT_MODE_HIGHLIGHT_OUTSET = 5
 
 local LONG_COOLDOWN_THRESHOLD  = 1800
 local CLAMP_VISIBLE_MARGIN     = 30
+-- Cheap (one C_Spell/C_Container call per existing item; no SpellBook re-scan); set-change events drive the full ScanAll path.
+local COOLDOWN_REFRESH_INTERVAL = 15
 
 local ICON_TEXCOORD_MIN        = 0.08
 local ICON_TEXCOORD_MAX        = 0.92
@@ -80,22 +85,6 @@ local ctx = { plugin = Plugin, state = state }
 addon.PortalDockContext = ctx
 
 -- [ ORIENTATION ] -----------------------------------------------------------------------------------
-local function DetectOrientation()
-    if not dock then return "LEFT" end
-    local screenWidth, screenHeight = GetScreenWidth(), GetScreenHeight()
-    local dockCenterX = dock:GetLeft() + (dock:GetWidth() / 2)
-    local dockCenterY = dock:GetBottom() + (dock:GetHeight() / 2)
-    local distToLeft = dockCenterX
-    local distToRight = screenWidth - dockCenterX
-    local distToTop = screenHeight - dockCenterY
-    local distToBottom = dockCenterY
-    local minDist = math_min(distToLeft, distToRight, distToTop, distToBottom)
-    if minDist == distToLeft then return "LEFT"
-    elseif minDist == distToRight then return "RIGHT"
-    elseif minDist == distToTop then return "TOP"
-    else return "BOTTOM" end
-end
-
 local function IsHorizontal()
     return currentOrientation == "TOP" or currentOrientation == "BOTTOM"
 end
@@ -104,24 +93,29 @@ end
 local function PositionIconForOrientation(icon, dockFrame, arcOffset, centerPos, iconSize)
     icon:ClearAllPoints()
     local halfIcon = iconSize / 2
+    local scale = icon:GetEffectiveScale()
+    local w, h = icon:GetSize()
     if currentOrientation == "LEFT" then
-        icon:SetPoint("CENTER", dockFrame, "TOPLEFT", halfIcon + arcOffset, -centerPos)
+        local x, y = OrbitEngine.Pixel:SnapPosition(halfIcon + arcOffset, -centerPos, "CENTER", w, h, scale)
+        icon:SetPoint("CENTER", dockFrame, "TOPLEFT", x, y)
     elseif currentOrientation == "RIGHT" then
-        icon:SetPoint("CENTER", dockFrame, "TOPRIGHT", -halfIcon - arcOffset, -centerPos)
+        local x, y = OrbitEngine.Pixel:SnapPosition(-halfIcon - arcOffset, -centerPos, "CENTER", w, h, scale)
+        icon:SetPoint("CENTER", dockFrame, "TOPRIGHT", x, y)
     elseif currentOrientation == "TOP" then
-        icon:SetPoint("CENTER", dockFrame, "TOPLEFT", centerPos, -halfIcon - arcOffset)
+        local x, y = OrbitEngine.Pixel:SnapPosition(centerPos, -halfIcon - arcOffset, "CENTER", w, h, scale)
+        icon:SetPoint("CENTER", dockFrame, "TOPLEFT", x, y)
     else
-        icon:SetPoint("CENTER", dockFrame, "BOTTOMLEFT", centerPos, halfIcon + arcOffset)
+        local x, y = OrbitEngine.Pixel:SnapPosition(centerPos, halfIcon + arcOffset, "CENTER", w, h, scale)
+        icon:SetPoint("CENTER", dockFrame, "BOTTOMLEFT", x, y)
     end
 end
 
 -- [ REFRESH ORCHESTRATION ] -------------------------------------------------------------------------
-local function RefreshDock()
+-- Scan/filter/sort (heavy; set-change only) is split from icon paint (cheap; scroll + search) so navigation handlers re-position from state.portalList without ScanAll's hundreds of API calls.
+local function RepaintIcons()
     local Combat = addon.PortalCombat
     if not dock or not Combat.CanInteract() then return end
 
-    local Scanner = addon.PortalScanner
-    local PD = addon.PortalData
     local Layout = addon.PortalLayout
     local IconModule = addon.PortalIcon
     local Canvas = addon.PortalCanvas
@@ -133,10 +127,78 @@ local function RefreshDock()
     end
     wipe(state.visibleIcons)
 
+    local totalItems = state.portalList and #state.portalList or 0
+    if totalItems == 0 then
+        dock:Hide()
+        return
+    end
+
+    local iconSize = Plugin:GetSetting(1, "IconSize")
+    local spacing = Plugin:GetSetting(1, "Spacing")
+    local maxVisible = Plugin:GetSetting(1, "MaxVisible")
+
+    currentOrientation = OrbitEngine.FrameOrientation:DetectOrientation(dock)
+    maxVisible = Layout.NormalizeMaxVisible(maxVisible, totalItems)
+    local compactness = Plugin:GetSetting(1, "Compactness") / 100
+    local iconPoolIndex = 0
+
+    for displayIndex = 0, maxVisible - 1 do
+        iconPoolIndex = iconPoolIndex + 1
+
+        local actualIndex = ((state.scrollOffset + displayIndex) % totalItems) + 1
+        local data = state.portalList[actualIndex]
+
+        if data then
+            if not iconPool then iconPool = {} end
+            local icon = iconPool[iconPoolIndex]
+            if not icon then
+                icon = IconModule.Create(ctx)
+                table.insert(iconPool, icon)
+            end
+
+            IconModule.Configure(ctx, icon, data, displayIndex)
+            Canvas.ApplyIconComponents(Plugin, icon, data, state.mythicPlusCache, Favorites.IsFavorite(Plugin, data))
+
+            local axialPos, arcOffset = Layout.CalculatePosition(displayIndex, maxVisible, iconSize, spacing, compactness)
+            icon.stableCenterPos = axialPos
+            PositionIconForOrientation(icon, dock.content, arcOffset, axialPos, iconSize)
+
+            table.insert(state.visibleIcons, icon)
+        end
+    end
+
+    local dockLength = math_max(Layout.CalculateAxialExtent(maxVisible, iconSize, spacing, compactness), iconSize)
+    local perpExtent = Layout.CalculatePerpExtent(maxVisible, iconSize, spacing, compactness)
+    local dockThickness = iconSize + perpExtent + 2
+
+    if IsHorizontal() then
+        dock:SetWidth(dockLength)
+        dock:SetHeight(dockThickness)
+    else
+        dock:SetWidth(dockThickness)
+        dock:SetHeight(dockLength)
+    end
+
+    -- Semi-clamp: drag past the edge but keep CLAMP_VISIBLE_MARGIN on-screen.
+    local marginX = math_max(0, dock:GetWidth() - CLAMP_VISIBLE_MARGIN)
+    local marginY = math_max(0, dock:GetHeight() - CLAMP_VISIBLE_MARGIN)
+    dock:SetClampRectInsets(marginX, -marginX, -marginY, marginY)
+
+    dock:Show()
+    addon.PortalReveal.OnRepaint(ctx)
+end
+
+local function RefreshDock()
+    local Combat = addon.PortalCombat
+    if not dock or not Combat.CanInteract() then return end
+
+    local Scanner = addon.PortalScanner
+    local PD = addon.PortalData
+    local Favorites = addon.PortalFavorites
+
     local rawList = Scanner:GetOrderedList()
 
-    -- displayGroup pins favourites into the FAVORITE group without clobbering item.category
-    -- (category still drives seasonal ring colour + M+ score rendering).
+    -- displayGroup pins favourites without clobbering item.category (still drives seasonal ring colour + M+ rendering).
     for _, item in ipairs(rawList) do
         item.displayGroup = Favorites.IsFavorite(Plugin, item) and "FAVORITE" or item.category
     end
@@ -165,64 +227,14 @@ local function RefreshDock()
         return orderIndex[a] < orderIndex[b]
     end)
 
-    local totalItems = #state.portalList
-    if totalItems == 0 then
-        dock:Hide()
-        return
+    -- O(n) displayGroup → first-index map lets PortalNavigation's shift+wheel up-branch lookup the prior-category boundary instead of O(n²) walk-back per notch.
+    state.firstIndexOfCategory = {}
+    for i, item in ipairs(state.portalList) do
+        local cat = item.displayGroup
+        if state.firstIndexOfCategory[cat] == nil then state.firstIndexOfCategory[cat] = i end
     end
 
-    local iconSize = Plugin:GetSetting(1, "IconSize")
-    local spacing = Plugin:GetSetting(1, "Spacing")
-    local maxVisible = Plugin:GetSetting(1, "MaxVisible")
-
-    currentOrientation = DetectOrientation()
-    maxVisible = Layout.NormalizeMaxVisible(maxVisible, totalItems)
-    local compactness = Plugin:GetSetting(1, "Compactness") / 100
-    local iconPoolIndex = 0
-
-    for displayIndex = 0, maxVisible - 1 do
-        iconPoolIndex = iconPoolIndex + 1
-
-        local actualIndex = ((state.scrollOffset + displayIndex) % totalItems) + 1
-        local data = state.portalList[actualIndex]
-
-        if data then
-            if not iconPool then iconPool = {} end
-            local icon = iconPool[iconPoolIndex]
-            if not icon then
-                icon = IconModule.Create(ctx)
-                table.insert(iconPool, icon)
-            end
-
-            IconModule.Configure(ctx, icon, data, displayIndex)
-            Canvas.ApplyIconComponents(Plugin, icon, data, state.mythicPlusCache, Favorites.IsFavorite(Plugin, data))
-
-            local axialPos, arcOffset = Layout.CalculatePosition(displayIndex, maxVisible, iconSize, spacing, compactness)
-            icon.stableCenterPos = axialPos
-            PositionIconForOrientation(icon, dock, arcOffset, axialPos, iconSize)
-
-            table.insert(state.visibleIcons, icon)
-        end
-    end
-
-    local dockLength = math_max(Layout.CalculateAxialExtent(maxVisible, iconSize, spacing, compactness), iconSize)
-    local perpExtent = Layout.CalculatePerpExtent(maxVisible, iconSize, spacing, compactness)
-    local dockThickness = iconSize + perpExtent + 2
-
-    if IsHorizontal() then
-        dock:SetWidth(dockLength)
-        dock:SetHeight(dockThickness)
-    else
-        dock:SetWidth(dockThickness)
-        dock:SetHeight(dockLength)
-    end
-
-    -- Semi-clamp: drag past the edge but keep CLAMP_VISIBLE_MARGIN on-screen.
-    local marginX = math_max(0, dock:GetWidth() - CLAMP_VISIBLE_MARGIN)
-    local marginY = math_max(0, dock:GetHeight() - CLAMP_VISIBLE_MARGIN)
-    dock:SetClampRectInsets(marginX, -marginX, -marginY, marginY)
-
-    dock:Show()
+    RepaintIcons()
 end
 
 local function RequestRefresh()
@@ -234,6 +246,7 @@ local function RequestRefresh()
 end
 
 ctx.RefreshDock = RefreshDock
+ctx.RepaintIcons = RepaintIcons
 ctx.RequestRefresh = RequestRefresh
 
 -- [ DOCK CREATION ] ---------------------------------------------------------------------------------
@@ -247,29 +260,45 @@ local function CreateDock()
     dock:SetFrameStrata(DOCK_FRAME_STRATA)
     dock:SetFrameLevel(DOCK_FRAME_LEVEL)
     dock:SetClampedToScreen(true)
-    -- Permissive insets until RefreshDock tightens them; otherwise RestorePosition would snap
-    -- a saved off-screen position back on-screen before we have real dimensions.
+    -- Permissive insets until RefreshDock tightens them; otherwise RestorePosition snaps a saved off-screen position on-screen before we have real dimensions.
     local sw, sh = GetScreenWidth(), GetScreenHeight()
     dock:SetClampRectInsets(sw, -sw, -sh, sh)
     dock:EnableMouse(true)
+    -- Enlarge the hover-summon zone past the visible dock so the cursor catches it sooner without resizing the frame (which would move the icons).
+    dock:SetHitRectInsets(-HOVER_HIT_INSET, -HOVER_HIT_INSET, -HOVER_HIT_INSET, -HOVER_HIT_INSET)
     dock:SetMovable(true)
     dock:RegisterForDrag("LeftButton")
 
     ctx.dock = dock
+
+    -- IsMouseOver ignores hit-rect insets, so re-expand the test rect by the same pad to keep reveal/conceal aligned with the enlarged trigger (offsets: top, bottom, left, right).
+    local function IsCursorOverDock()
+        return dock:IsMouseOver(HOVER_HIT_INSET, -HOVER_HIT_INSET, -HOVER_HIT_INSET, HOVER_HIT_INSET)
+    end
+    ctx.IsCursorOverDock = IsCursorOverDock
+
+    -- Icons live on this child so the reveal animation can move/fade them while the dock stays the fixed hover zone.
+    local content = CreateFrame("Frame", nil, dock)
+    content:SetAllPoints(dock)
+    dock.content = content
+    ctx.content = content
+
     addon.PortalNavigation.Install(ctx)
 
     dock:SetScript("OnEnter", function(self)
         state.isMouseOver = true
         addon.PortalNavigation.ShowSearch()
         self:SetAlpha(1)
+        addon.PortalReveal.Reveal(ctx)
     end)
 
     dock:SetScript("OnLeave", function(self)
-        if not self:IsMouseOver() then
+        if not IsCursorOverDock() then
             state.isMouseOver = false
             addon.PortalNavigation.HideSearch()
             addon.PortalNavigation.ClearSearchBuffer()
             self:SetAlpha(1)
+            addon.PortalReveal.Conceal(ctx)
         end
     end)
 
@@ -290,6 +319,7 @@ local function CreateDock()
 
         local preview = CreateFrame("Frame", nil, options.parent or UIParent)
         preview:SetSize(iconSize, iconSize)
+        OrbitEngine.Pixel:Enforce(preview)
         preview.sourceFrame = self
         preview.sourceWidth = iconSize
         preview.sourceHeight = iconSize
@@ -312,7 +342,9 @@ local function CreateDock()
         local borderTex = preview:CreateTexture(nil, "OVERLAY")
         borderTex:SetAtlas(borderAtlas, false)
         borderTex:SetPoint("CENTER")
-        borderTex:SetSize(iconSize * ICON_BORDER_SCALE, iconSize * ICON_BORDER_SCALE)
+        local previewScale = preview:GetEffectiveScale()
+        local borderTexSize = OrbitEngine.Pixel:Snap(iconSize * ICON_BORDER_SCALE, previewScale)
+        borderTex:SetSize(borderTexSize, borderTexSize)
 
         local savedPositions = Plugin:GetSetting(1, "ComponentPositions") or {}
         local fontPath = addon.PortalCanvas.GetGlobalFontPath()
@@ -375,6 +407,7 @@ function Plugin:OnLoad()
     dock.editModeName = "Portal Dock"
     dock.systemIndex = 1
     dock.orbitNoSnap = true
+    dock.orbitSelectionOutset = EDIT_MODE_HIGHLIGHT_OUTSET
 
     OrbitEngine.Frame:AttachSettingsListener(dock, self, 1)
 
@@ -398,6 +431,8 @@ function Plugin:OnLoad()
             local newCenterY = cursorY - offsetY
             local newLeft = newCenterX - (dock:GetWidth() / 2)
             local newBottom = newCenterY - (dock:GetHeight() / 2)
+            local dw, dh = dock:GetSize()
+            newLeft, newBottom = OrbitEngine.Pixel:SnapPosition(newLeft, newBottom, "BOTTOMLEFT", dw, dh, dock:GetEffectiveScale())
             dock:ClearAllPoints()
             dock:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", newLeft, newBottom)
         end
@@ -428,6 +463,9 @@ function Plugin:OnLoad()
             if state.pendingRefresh then
                 state.pendingRefresh = false
                 RefreshDock()
+            else
+                -- RefreshDock re-seats the reveal via RepaintIcons; with no pending refresh, re-seat any tween stranded when combat hid the dock.
+                addon.PortalReveal.OnRepaint(ctx)
             end
         elseif event == "PLAYER_REGEN_DISABLED" then
             Combat.UpdateState(ctx)
@@ -439,6 +477,8 @@ function Plugin:OnLoad()
                 if state.pendingRefresh then
                     state.pendingRefresh = false
                     RefreshDock()
+                else
+                    addon.PortalReveal.OnRepaint(ctx)
                 end
             else
                 state.pendingRefresh = true
@@ -477,6 +517,31 @@ function Plugin:OnLoad()
     end
 
     RequestRefresh()
+    addon.PortalReveal.Install(ctx)
+
+    -- Keep swirls live without ScanAll: RefreshCooldowns mutates state.portalList in place, then RepaintIcons feeds Cooldown:SetCooldown (C-sink, secret-safe).
+    self._cooldownTicker = C_Timer.NewTicker(COOLDOWN_REFRESH_INTERVAL, function()
+        if not dock or not addon.PortalCombat.CanInteract() then return end
+        local list = state.portalList
+        if not list or #list == 0 then return end
+        addon.PortalScanner:RefreshCooldowns(list)
+        RepaintIcons()
+    end)
+end
+
+function Plugin:OnDisable()
+    if self.eventFrame then
+        self.eventFrame:UnregisterAllEvents()
+        self.eventFrame:SetScript("OnEvent", nil)
+    end
+    if EventRegistry then
+        EventRegistry:UnregisterCallback("EditMode.Enter", self)
+        EventRegistry:UnregisterCallback("EditMode.Exit", self)
+    end
+    if self._cooldownTicker then
+        self._cooldownTicker:Cancel()
+        self._cooldownTicker = nil
+    end
 end
 
 function Plugin:UpdateVisibility()
@@ -489,6 +554,7 @@ end
 function Plugin:ApplySettings()
     if not dock then return end
     RequestRefresh()
+    addon.PortalReveal.Apply(ctx)
 end
 
 function Plugin:AddSettings(dialog, systemFrame)

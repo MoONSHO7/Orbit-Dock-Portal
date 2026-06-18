@@ -3,8 +3,7 @@
 local _, addon = ...
 
 -- [ CONSTANTS ] -------------------------------------------------------------------------------------
-local MIN_FADE_ALPHA = 0.05
-local FADE_CURVE_UNIT = 20  -- Slider amount that yields a classic cosine curve (power 1).
+local FADE_SLIDER_MAX = 100  -- Fade Effect slider max; fadeAmount/FADE_SLIDER_MAX is the per-step fade fraction.
 
 -- Cache globals (hot path).
 local math_abs   = math.abs
@@ -72,14 +71,10 @@ function Layout.CalculateAxialExtent(maxVisible, iconSize, spacing, compactness)
     return radius * (maxSin - minSin) + iconSize
 end
 
--- fadeAmount: 0 = no fade, 20 = classic cosine, 100 = very sharp; always clamped to MIN_FADE_ALPHA.
-function Layout.EdgeAlphaForIndex(iconIndex, maxVisible, fadeAmount)
+-- Centre icon stays 100%; each step out loses fadeAmount% (0 = off). Outer icons aren't pinned to 0.
+function Layout.FadeAlphaForIndex(iconIndex, maxVisible, fadeAmount)
     if not fadeAmount or fadeAmount <= 0 then return 1 end
     local visualCenterIndex = (maxVisible + 1) / 2
     local distFromVisualCenter = math_abs((iconIndex + 1) - visualCenterIndex)
-    local halfSpan = math_max(1, (maxVisible - 1) / 2)
-    local normDist = math_max(0, math_min(1, distFromVisualCenter / halfSpan))
-    local base = math_cos(normDist * math_pi / 2)
-    local power = fadeAmount / FADE_CURVE_UNIT
-    return math_max(MIN_FADE_ALPHA, base ^ power)
+    return math_max(0, 1 - distFromVisualCenter * (fadeAmount / FADE_SLIDER_MAX))
 end

@@ -1,4 +1,4 @@
-## Interface: 120005, 120001
+## Interface: 120005, 120007
 ## Title: Dock: Portal
 ## Notes: A Scrollable bar for your characters portals.
 ## Author: MoONSHO7 / M7
@@ -31,6 +31,7 @@ Core\State\PortalCombat.lua
 # View
 Core\View\PortalTooltip.lua
 Core\View\PortalIcon.lua
+Core\View\PortalReveal.lua
 
 # Input
 Core\Input\PortalNavigation.lua

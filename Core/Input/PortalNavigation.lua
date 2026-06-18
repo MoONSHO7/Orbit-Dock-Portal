@@ -86,21 +86,14 @@ function Navigation.Install(ctx)
             local currentCategory = portalList[currentCenterIndex] and portalList[currentCenterIndex].displayGroup
 
             if delta > 0 then
+                -- Up-branch uses RefreshDock's precomputed firstIndexOfCategory — was O(n²) via nested walk-back.
+                local firstIndexMap = state.firstIndexOfCategory
                 for offset = 1, totalIcons - 1 do
                     local checkIndex = ((currentCenterIndex - 1 - offset) % totalIcons) + 1
                     local item = portalList[checkIndex]
                     if item and item.displayGroup ~= currentCategory then
-                        local targetCategory = item.displayGroup
-                        local firstOfCategory = checkIndex
-                        for back = 1, totalIcons do
-                            local prevIndex = ((checkIndex - 1 - back) % totalIcons) + 1
-                            local prevItem = portalList[prevIndex]
-                            if not prevItem or prevItem.displayGroup ~= targetCategory then
-                                break
-                            end
-                            firstOfCategory = prevIndex
-                        end
-                        state.scrollOffset = (firstOfCategory - 1 - centerSlot + totalIcons) % totalIcons
+                        local target = firstIndexMap and firstIndexMap[item.displayGroup] or checkIndex
+                        state.scrollOffset = (target - 1 - centerSlot + totalIcons) % totalIcons
                         break
                     end
                 end
@@ -118,7 +111,7 @@ function Navigation.Install(ctx)
             state.scrollOffset = (state.scrollOffset - delta) % totalIcons
         end
 
-        ctx.RefreshDock()
+        ctx.RepaintIcons()
     end
 
     local function OnSearchChar(_, text)
@@ -141,14 +134,12 @@ function Navigation.Install(ctx)
 
         local targetSlot = GetCursorDisplaySlot(state.visibleIcons)
         state.scrollOffset = (matchIndex - 1 - targetSlot + totalIcons) % totalIcons
-        ctx.RefreshDock()
+        ctx.RepaintIcons()
     end
 
     dock:SetScript("OnMouseWheel", OnMouseWheel)
 
-    -- Child of the dock so a combat dock:Hide() also hides this; Show/Hide is the only capture gate.
-    -- Single-char keys are consumed so letter bindings (e.g. M = map) don't fire while searching;
-    -- everything else propagates so ESC/Enter/bindings and any editbox input still work.
+    -- Child of dock so combat dock:Hide() hides this too; consumes single-char keys (letter bindings stay silent while searching) and propagates ESC/Enter/etc.
     searchFrame = CreateFrame("Frame", nil, dock)
     searchFrame:EnableKeyboard(true)
     if not InCombatLockdown() then
