@@ -81,6 +81,20 @@ local function GetItemDetails(itemID)
     return name, icon
 end
 
+-- Owned toy or bag item; name/icon resolved only when available.
+local function ProbeItemAvailability(data)
+    local available = false
+    local name, icon
+    if data.type == "toy" then
+        available = IsToyOwned(data.itemID)
+        if available then name, icon = GetItemDetails(data.itemID) end
+    elseif data.type == "item" then
+        available = HasItem(data.itemID)
+        if available then name, icon = GetItemDetails(data.itemID) end
+    end
+    return available, name, icon
+end
+
 -- [ CATEGORY SCANNERS ] -----------------------------------------------------------------------------
 function Scanner:ScanDungeonCategory(categoryData, categoryName)
     local results = {}
@@ -204,20 +218,7 @@ function Scanner:ScanHearthstones()
     local allAvailable = {}
 
     for _, data in ipairs(PD.HEARTHSTONE_SHARED or {}) do
-        local available = false
-        local name, icon
-
-        if data.type == "toy" then
-            available = IsToyOwned(data.itemID)
-            if available then
-                name, icon = GetItemDetails(data.itemID)
-            end
-        elseif data.type == "item" then
-            available = HasItem(data.itemID)
-            if available then
-                name, icon = GetItemDetails(data.itemID)
-            end
-        end
+        local available, name, icon = ProbeItemAvailability(data)
 
         if available and name then
             table.insert(allAvailable, {
@@ -245,20 +246,7 @@ function Scanner:ScanHearthstones()
     end
 
     for _, data in ipairs(PD.HEARTHSTONE_UNIQUE or {}) do
-        local available = false
-        local name, icon
-
-        if data.type == "toy" then
-            available = IsToyOwned(data.itemID)
-            if available then
-                name, icon = GetItemDetails(data.itemID)
-            end
-        elseif data.type == "item" then
-            available = HasItem(data.itemID)
-            if available then
-                name, icon = GetItemDetails(data.itemID)
-            end
-        end
+        local available, name, icon = ProbeItemAvailability(data)
 
         if available then
             local cooldown, cooldownDuration = GetCooldownInfo(false, data.itemID)

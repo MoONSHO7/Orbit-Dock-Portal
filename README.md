@@ -1,139 +1,52 @@
-# orbit portal
+# Orbit Portal
 
-dock-style portal UI with arc-wrap layout, centre-out edge-fade, and a hover reveal animation. external plugin — depends on orbit core.
+## Description
+Dock-style portal UI with arc-wrap layout, centre-out edge-fade, and a hover reveal animation. A separate sub-addon (`Orbit_Portal.toc`, `## Dependencies: Orbit`) — it depends on Orbit Core; Orbit Core must never reference it.
 
-## purpose
+## Purpose
+Replaces standalone portal addons with a compact dock of available teleports, portals, hearthstones, toys, and housing. Icons lie along a configurable arc and dim per step outward from the centre; shift+scroll jumps categories; while hovering, typing filters the dock to the matching portals — short code like `MT`, a name, or a category like `Legion` (surfaces the whole Legion Dungeons category), prefix/substring ranked with prefixes on top. The readout turns red on no match, `TAB`/wheel page any overflow, and cursor movement over the dock keeps the filter up so a result can be moused over and clicked.
 
-replaces the need for portal addons with a compact dock showing available teleports, portals, hearthstones, toys, and housing. icons are laid out along a configurable arc and fade outward from the centre (centre icon full, each step out dimmer by the slider's per-step rate); shift+scroll jumps between categories. while hovering the dock, typing a keyword (short code like `MT` or substring of the portal name) scrolls the match onto the icon slot nearest the cursor — printable keys are consumed by search so typing `M` doesn't also open the map, but ESC/Enter/F-keys/arrows/modifiers and any key while an editbox is focused still pass through. the search buffer clears after ~1s of idle or when the mouse leaves.
+## Implementation
+`PortalDock.lua` is the plugin root: it calls `Orbit:RegisterPlugin("Portal Dock", "Orbit_Portal", …)`, owns the dock frame, and owns a shared `ctx` table (exposed as `addon.PortalDockContext`) that every extracted module receives — `ctx.plugin`, `ctx.dock`, `ctx.content` (the icon-bearing child), `ctx.state` (`portalList`, `visibleIcons`, `scrollOffset`, `mythicPlusCache`, `pendingRefresh`, …), and three repaint doors:
 
-## layout
+- `ctx.RefreshDock()` — full rescan + filter + sort + paint, combat-gated. Set-change events only (category toggle, rescan, `SPELLS_CHANGED`, `PLAYER_ENTERING_WORLD`).
+- `ctx.RepaintIcons()` — paint-only from cached `state.portalList`, no Scanner call. Hot paths: scroll, type-to-search, cooldown ticker. Renders `state.searchFilter` (ranked matches) when set, else the full list; shows each item once — `min(count, maxVisible)` centred — windowing `renderList` with wraparound so the wheel cycles a short result set (a single match can't scroll). The dock **frame** always sizes to the full-list `maxVisible` so the hover zone never collapses under the cursor while filtering.
+- `ctx.RequestRefresh()` — debounced (`Orbit.Async`, key `OrbitPortal_Refresh`): coalesces the PEW/ApplySettings/housing/`SPELLS_CHANGED` burst into one trailing scan, refreshing now or deferring `pendingRefresh` to `PLAYER_REGEN_ENABLED` when combat starts mid-window. Use in any handler that may fire in combat or in bursts.
 
-```
-Core/
-  PortalData.lua                    static definitions
-  PortalScanner.lua                 runtime detection
-  PortalLayout.lua                  pure arc / edge-fade math
-  PortalCanvas.lua                  canvas mode icon components
-  PortalDock.lua                    plugin root coordinator
-  State/
-    PortalFavorites.lua             favourite persistence model
-    PortalCombat.lua                combat / encounter gating
-  View/
-    PortalIcon.lua                  secure icon factory + per-data configure
-    PortalTooltip.lua               hover tooltip (M+ season best, cooldowns)
-    PortalReveal.lua                hover reveal/conceal animation (Off / Slide / Fade)
-  Input/
-    PortalNavigation.lua            scroll + keyword search handlers
-  Settings/
-    PortalSchema.lua                settings UI schema builder
-    PortalCommands.lua              portal rescan action (triggered from Spotlight)
-```
+Load order (`Orbit_Portal.toc`) is data → pure helpers → runtime → root; no sibling requires `PortalDock` at file-scope load, runtime lookups via `addon.Portal*` are fine:
 
-## files
-
-| file | responsibility |
+| File | Job |
 |---|---|
-| PortalData.lua | static portal/toy/hearthstone definitions. category order, seasonal dungeon/raid lists, localized category names. |
-| PortalScanner.lua | runtime detection of available portals. scans spells, toys, items, housing, and cooldowns. |
-| PortalLayout.lua | pure layout math — arc-wrap positioning and centre-out fade alpha (centre 100%, dimming per-step outward). stateless functions only. |
-| PortalCanvas.lua | Canvas Mode per-icon apply for DungeonScore, DungeonShort, Timer, FavouriteStar. shared `GetDungeonScoreColor` helper. |
-| PortalDock.lua | plugin root. plugin registration, shared state + `ctx`, orientation detection, dock frame, canvas preview, `RefreshDock` orchestration, lifecycle + event fan-out. |
-| State/PortalFavorites.lua | `IsFavorite` / `Toggle` / `GetKey` — favourite persistence through `Plugin:GetSetting/SetSetting`. |
-| State/PortalCombat.lua | `CanInteract` gate + `UpdateState(ctx)` reconciler called on `PLAYER_REGEN_*` / `ENCOUNTER_*`. |
-| View/PortalIcon.lua | `Create(ctx)` builds the reusable secure action button (parented to `ctx.content`); `Configure(ctx, icon, data, index)` binds a portal row onto it. |
-| View/PortalTooltip.lua | `Show(ctx, anchor, data)` — assembles the hover tooltip including M+ season-best with `issecretvalue()` guards. |
-| View/PortalReveal.lua | `Apply`/`Reveal`/`Conceal`/`OnRepaint(ctx)` — the `Animation` setting (Off / Slide / Fade). Animates only `ctx.content` (alpha + translation toward the nearest screen edge) so the dock stays a fixed hover-summon zone; the tween snaps and stops under combat lockdown (dock is hidden in combat). |
-| Input/PortalNavigation.lua | `Install(ctx)` wires `OnMouseWheel` (normal + shift-category-jump) and creates a hidden capture-frame child of the dock for typeahead search. `ShowSearch`/`HideSearch` gate capture by hover. `RestorePropagationDefault` re-seats propagation after a combat-time `/reload`. `ClearSearchBuffer` called on `OnLeave`. |
-| Settings/PortalSchema.lua | `Build(plugin, dialog, systemFrame, ctx)` — Layout + Categories tabs. |
-| Settings/PortalCommands.lua | `Handle(ctx, cmd)` — portal rescan (`scan`): wipes the M+ cache and refreshes the dock. Triggered from Spotlight via `PortalDock:HandleCommand("scan")`. |
+| `PortalData.lua` | static portal/toy/hearthstone definitions, category order, seasonal lists |
+| `PortalLayout.lua` | pure arc-wrap + centre-out fade math, stateless |
+| `PortalCanvas.lua` | Canvas Mode per-icon apply (DungeonScore, DungeonShort, Timer, FavouriteStar) |
+| `PortalScanner.lua` | runtime detection — spells, toys, items, housing, cooldowns |
+| `State/PortalFavorites.lua` | favourite persistence via `Plugin:GetSetting/SetSetting` |
+| `State/PortalCombat.lua` | `CanInteract` gate + reconciler on `PLAYER_REGEN_*` / `ENCOUNTER_*` |
+| `View/PortalTooltip.lua` | hover tooltip (M+ season best, cooldowns) |
+| `View/PortalIcon.lua` | secure action-button factory + per-data configure |
+| `View/PortalReveal.lua` | hover reveal/conceal animation (Off / Slide / Fade) |
+| `Input/PortalNavigation.lua` | scroll + shift-category-jump + typeahead search capture frame |
+| `Settings/PortalSchema.lua` | settings UI schema (Layout + Categories tabs) |
+| `Settings/PortalCommands.lua` | `scan` command from Spotlight — wipes the M+ cache, refreshes |
+| `PortalDock.lua` | plugin root — registration, ctx, dock frame, RefreshDock, lifecycle |
 
-## architecture
+Orbit Core surface used: `Orbit:RegisterPlugin` / `PluginMixin` (`GetSetting`/`SetSetting`, standard + visibility events), `OrbitEngine.Config:Render`, `OrbitEngine.Frame` (settings listener, `RestorePosition`), `OrbitEngine.Pixel`, `OrbitEngine.PositionUtils` / `OverrideUtils` for Canvas Mode text, `Orbit.EventBus`, `Orbit.L`.
 
-```mermaid
-graph TD
-    PD[PortalData] --> Scanner[PortalScanner]
-    PD --> Tooltip[View/PortalTooltip]
-    PD --> Schema[Settings/PortalSchema]
-    PD --> Dock[PortalDock]
+## Gotchas
+- Dependency direction is inward only: `PortalDock` → sibling modules → `PortalLayout` / `PortalCanvas` / `PortalData`.
+- Secure button attributes must be cleared during Edit Mode; scanning is combat-safe by queuing through `pendingRefresh`. The dock is hidden in combat and the reveal tween snaps and stops under lockdown.
+- The cast binds to `type1` (left mouse) only, leaving right-click free to toggle favourite (insecure `PreClick`, gated on `down` so the up-edge doesn't double-toggle) — right-click never casts.
+- Mouse-enabled icons swallow the wheel instead of passing it to the dock, so each icon forwards `OnMouseWheel` to the dock handler via `ctx.HandleWheel` — otherwise scrolling over a result (which covers the dock) wouldn't scroll/page.
+- Filter engage/clear fades the new icon set in (`state.animatePaint` one-shot → `Icon.PlayAppear`); it animates **alpha only** because `SetScale` on the secure buttons would taint in combat. Refines (query→query) and scroll/cooldown repaints snap, so fast typing doesn't strobe.
+- The reveal animation moves/fades `ctx.content` only, never the dock — the dock stays a fixed hover-summon zone. `ctx.HoverEnter`/`ctx.HoverExit` (both keyed on `ctx.IsCursorOverDock()`, hit rect padded by `HOVER_HIT_INSET`) are the single hover path for the dock, every icon, and the search reconciler, so moving Slide icons never pump hover state.
+- Typeahead consumes printable keys (typing `M` must not also open the map) but passes through ESC/Enter/F-keys/arrows/modifiers and everything while an editbox is focused. Matching is prefix-then-substring ranked (prefixes win); a live query **filters** the dock to the matches (`state.searchFilter`, each shown once and centred, windowed with wraparound so the wheel cycles a short set) and prints in the bottom-right readout (red on no match). The reset timer (~0.8s) is extended by typing, `TAB`, wheel, and **cursor movement over the dock** (`KeepSearchAlive`), so the results persist while the user reaches for one; it fires only once the cursor is idle/gone, clearing the filter back to the full list. `TAB`/wheel cycle/page the results and are consumed only while a query is live (else `TAB` targets normally). The dock frame stays full-size while filtering so the hover zone can't collapse under the cursor. RepaintIcons can `Hide` an icon out from under a stationary cursor and eat its `OnLeave`, so the shown (keyboard-capturing) search frame polls `IsCursorOverDock()` throttled and runs `HoverExit` on miss, and `HideSearch` restores key propagation — together they stop the frame being stranded shown and eating the keyboard. `RestorePropagationDefault` re-seats propagation after a combat-time `/reload` (`SetPropagateKeyboardInput` is protected in combat).
+- Cooldown display uses `SetCooldown()` — no manual OnUpdate tickers.
+- User-visible strings go through `Orbit.L` (`PLU_PORTAL_*` plugin UI, `CMD_PORTAL_*` slash output).
 
-    Layout[PortalLayout] --> Icon[View/PortalIcon]
-    Layout --> Dock
-    Layout --> Nav[Input/PortalNavigation]
+## Secrets
+`C_MythicPlus.GetSeasonBest*` returns and item cooldown start/duration can be secret: `PortalTooltip`, `PortalCanvas`, and `PortalScanner` guard with `issecretvalue()` before any comparison, arithmetic, or caching. Never use `pcall` as a secret-value shield.
 
-    Canvas[PortalCanvas] --> Tooltip
-    Canvas --> Dock
-
-    Scanner --> Dock
-    Scanner --> Schema
-
-    Favorites[State/PortalFavorites] --> Icon
-    Favorites --> Dock
-
-    Combat[State/PortalCombat] --> Nav
-    Combat --> Schema
-    Combat --> Commands[Settings/PortalCommands]
-    Combat --> Dock
-
-    Tooltip --> Icon
-    Icon --> Dock
-    Reveal[View/PortalReveal] --> Dock
-    Reveal --> Icon
-    Combat --> Reveal
-    Nav --> Dock
-    Schema --> Dock
-    Commands --> Dock
-
-    Dock --> OrbitCore[Orbit Core]
-    OrbitCore --> PluginMixin[PluginMixin]
-    OrbitCore --> Frame[Frame/Selection]
-    OrbitCore --> Config[Config/Renderer]
-    OrbitCore --> L[Orbit.L]
-```
-
-## shared context
-
-Extracted modules receive a single `ctx` table that `PortalDock.lua` owns and exposes as `addon.PortalDockContext`:
-
-```
-ctx = {
-    plugin        = Plugin,        -- the registered Plugin object
-    dock          = <Frame>,       -- populated once CreateDock runs
-    content       = <Frame>,       -- icon-bearing child of dock; the reveal animation (PortalReveal) moves/fades this, not the dock
-    state = {
-        portalList, visibleIcons, scrollOffset,
-        isMouseOver, isEditModeActive,
-        pendingRefresh, mythicPlusCache,
-    },
-    RefreshDock   = <function>,    -- full rescan + filter + sort + paint (gated by combat). Use on set-change events (category toggle, portal rescan, SPELLS_CHANGED, PLAYER_ENTERING_WORLD).
-    RepaintIcons  = <function>,    -- paint-only from cached state.portalList — NO Scanner call. Use on scroll / type-to-search / cooldown ticker (set-stable hot paths).
-    RequestRefresh = <function>,   -- refresh now or defer to REGEN_ENABLED (calls RefreshDock when combat clears).
-    IsCursorOverDock = <function>, -- cursor over the padded hover-summon zone (hit rect enlarged by HOVER_HIT_INSET). Single source of truth for reveal/conceal so the moving Slide icons never pump hover state.
-}
-```
-
-Modules that need shared state read/write through `ctx.state`. Modules that need to trigger a rebuild call `ctx.RefreshDock()` (set-change) or `ctx.RepaintIcons()` (set-stable navigation) or `ctx.RequestRefresh()` (event handlers that may fire in combat).
-
-## orbit core api surface
-
-- `Orbit:RegisterPlugin()` — plugin registration and mixin application
-- `Plugin:GetSetting()` / `SetSetting()` — per-layout setting persistence
-- `OrbitEngine.Config:Render()` — settings panel rendering from schema
-- `OrbitEngine.Frame:AttachSettingsListener()` — edit mode selection and drag
-- `OrbitEngine.Frame:RestorePosition()` — saved position restoration
-- `OrbitEngine.Pixel:Enforce()` — pixel-perfect scaling
-- `OrbitEngine.PositionUtils.ApplyTextPosition()` — Canvas Mode text layout
-- `OrbitEngine.OverrideUtils.ApplyOverrides` / `ApplyFontOverrides` — per-component font/colour overrides
-- `Orbit.EventBus` — event subscriptions (edit mode, combat, visibility)
-- `Orbit.L` — localized strings (prefix `PLU_PORTAL_*`, `CMD_PORTAL_*`)
-- `Plugin:RegisterStandardEvents()` / `RegisterVisibilityEvents()` — standard lifecycle
-
-## rules
-
-- this is an external plugin. it depends on orbit core but orbit core must never reference it.
-- dependency direction is **inward only**: `PortalDock` → sibling modules → `PortalLayout` / `PortalCanvas` / `PortalData`. No sibling module requires `PortalDock` at file-scope load time; runtime lookups via `addon.Portal*` are fine.
-- all secure button attributes must be cleared during edit mode (combat lockdown safety).
-- cooldown display uses `SetCooldown()` — no manual OnUpdate tickers needed.
-- portal scanning must be combat-safe. queue refreshes via `pendingRefresh` flag.
-- all constants at file top. no magic numbers.
-- user-visible strings go through `Orbit.L` (`PLU_PORTAL_*` for plugin UI, `CMD_PORTAL_*` for slash output). see `Orbit/Localization/README.md`.
-- secret-value returns from `C_MythicPlus.GetSeasonBest*` are `issecretvalue()`-guarded before comparison/arithmetic or caching. never use `pcall` as a secret-value shield.
+## References
+- `Orbit/Localization/README.md` — string conventions; Orbit repo `CLAUDE.md` — architecture and secret-value rules.
+- `Orbit_Portal.toc` — load order and packaging metadata (CurseForge project 1439533).

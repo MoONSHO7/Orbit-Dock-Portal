@@ -4,6 +4,7 @@ local _, addon = ...
 
 -- [ CONSTANTS ] -------------------------------------------------------------------------------------
 local FADE_SLIDER_MAX = 100  -- Fade Effect slider max; fadeAmount/FADE_SLIDER_MAX is the per-step fade fraction.
+local FADE_DEFAULT    = 20    -- legacy boolean `true` maps to this percentage
 
 -- Cache globals (hot path).
 local math_abs   = math.abs
@@ -69,6 +70,13 @@ function Layout.CalculateAxialExtent(maxVisible, iconSize, spacing, compactness)
     local radius = totalLength / thetaMax
     local minSin, maxSin = SinRange(thetaMax / 2)
     return radius * (maxSin - minSin) + iconSize
+end
+
+-- Normalise the FadeEffect setting: legacy boolean true = default %, false/nil = off.
+function Layout.ResolveFadeAmount(fadeAmount)
+    if fadeAmount == true then return FADE_DEFAULT end
+    if not fadeAmount then return 0 end
+    return fadeAmount
 end
 
 -- Centre icon stays 100%; each step out loses fadeAmount% (0 = off). Outer icons aren't pinned to 0.

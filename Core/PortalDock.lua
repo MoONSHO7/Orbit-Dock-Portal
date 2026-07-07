@@ -8,6 +8,7 @@ local OrbitEngine = Orbit.Engine
 
 local math_max = math.max
 local math_min = math.min
+local math_floor = math.floor
 local ipairs = ipairs
 local wipe = wipe
 local InCombatLockdown = InCombatLockdown
@@ -55,6 +56,7 @@ local LONG_COOLDOWN_THRESHOLD  = 1800
 local CLAMP_VISIBLE_MARGIN     = 30
 -- Cheap (one C_Spell/C_Container call per existing item; no SpellBook re-scan); set-change events drive the full ScanAll path.
 local COOLDOWN_REFRESH_INTERVAL = 15
+local REFRESH_DEBOUNCE          = 0.1
 
 local ICON_TEXCOORD_MIN        = 0.08
 local ICON_TEXCOORD_MAX        = 0.92
@@ -83,6 +85,10 @@ local state = {
 
 local ctx = { plugin = Plugin, state = state }
 addon.PortalDockContext = ctx
+
+-- Static sort priority (favourites first); PortalData loads before this file, so build the map once instead of per RefreshDock.
+local CAT_PRIORITY = {}
+for i, cat in ipairs(addon.PortalData.CategoryOrder) do CAT_PRIORITY[cat] = i end
 
 -- [ ORIENTATION ] -----------------------------------------------------------------------------------
 local function IsHorizontal()
@@ -119,7 +125,6 @@ local function RepaintIcons()
     local Layout = addon.PortalLayout
     local IconModule = addon.PortalIcon
     local Canvas = addon.PortalCanvas
-    local Favorites = addon.PortalFavorites
 
     for _, icon in ipairs(state.visibleIcons) do
         icon:Hide()
@@ -138,15 +143,38 @@ local function RepaintIcons()
     local maxVisible = Plugin:GetSetting(1, "MaxVisible")
 
     currentOrientation = OrbitEngine.FrameOrientation:DetectOrientation(dock)
+    -- Dock frame size (below) always uses the full-list maxVisible so the hover zone never collapses under the cursor while type-to-search filters the visible icons.
     maxVisible = Layout.NormalizeMaxVisible(maxVisible, totalItems)
     local compactness = Plugin:GetSetting(1, "Compactness") / 100
     local iconPoolIndex = 0
 
-    for displayIndex = 0, maxVisible - 1 do
+    -- Repaint-invariant reads resolved once here, threaded into every icon, so the loop runs no per-icon GetSetting / LibSharedMedia fetch / disabled-set alloc (hot path: scroll + type-to-search).
+    local paint = {
+        iconSize   = iconSize,
+        maxVisible = maxVisible,
+        fadeAmount = Layout.ResolveFadeAmount(Plugin:GetSetting(1, "FadeEffect")),
+        fontPath   = Canvas.GetGlobalFontPath(),
+        positions  = Plugin:GetSetting(1, "ComponentPositions") or {},
+        disabled   = Canvas.BuildDisabledSet(Plugin),
+    }
+
+    -- One-shot flag set by the search filter engaging/clearing: fade the new icon set in instead of snapping.
+    local animate = state.animatePaint
+    state.animatePaint = nil
+
+    -- Type-to-search renders the ranked matches (state.searchFilter) instead of the full list: show each match once, min(count, maxVisible), centred in the fixed-size dock. Window with wraparound so the wheel cycles a short set (and a single match can't scroll). The full list has >= maxVisible items, so it fills every slot from the start.
+    local renderList = (state.searchFilter and #state.searchFilter > 0) and state.searchFilter or state.portalList
+    local renderCount = #renderList
+    local shown = math_min(renderCount, maxVisible)
+    local startSlot = math_floor((maxVisible - shown) / 2)
+    local windowStart = state.scrollOffset % renderCount
+
+    for k = 0, shown - 1 do
         iconPoolIndex = iconPoolIndex + 1
 
-        local actualIndex = ((state.scrollOffset + displayIndex) % totalItems) + 1
-        local data = state.portalList[actualIndex]
+        local displayIndex = startSlot + k
+        local actualIndex = ((windowStart + k) % renderCount) + 1
+        local data = renderList[actualIndex]
 
         if data then
             if not iconPool then iconPool = {} end
@@ -156,13 +184,14 @@ local function RepaintIcons()
                 table.insert(iconPool, icon)
             end
 
-            IconModule.Configure(ctx, icon, data, displayIndex)
-            Canvas.ApplyIconComponents(Plugin, icon, data, state.mythicPlusCache, Favorites.IsFavorite(Plugin, data))
+            IconModule.Configure(ctx, icon, data, displayIndex, paint)
+            Canvas.ApplyIconComponents(icon, data, state.mythicPlusCache, data.displayGroup == "FAVORITE", paint)
 
             local axialPos, arcOffset = Layout.CalculatePosition(displayIndex, maxVisible, iconSize, spacing, compactness)
             icon.stableCenterPos = axialPos
             PositionIconForOrientation(icon, dock.content, arcOffset, axialPos, iconSize)
 
+            if animate then IconModule.PlayAppear(icon) end
             table.insert(state.visibleIcons, icon)
         end
     end
@@ -192,8 +221,10 @@ local function RefreshDock()
     local Combat = addon.PortalCombat
     if not dock or not Combat.CanInteract() then return end
 
+    -- A rescan rebuilds portalList, so any type-to-search filter (which holds refs into the old list) is stale — drop it and render the fresh full list.
+    state.searchFilter = nil
+
     local Scanner = addon.PortalScanner
-    local PD = addon.PortalData
     local Favorites = addon.PortalFavorites
 
     local rawList = Scanner:GetOrderedList()
@@ -216,33 +247,40 @@ local function RefreshDock()
         end
     end
 
-    local catPriority = {}
-    for i, cat in ipairs(PD.CategoryOrder) do catPriority[cat] = i end
     local orderIndex = {}
     for i, item in ipairs(state.portalList) do orderIndex[item] = i end
     table.sort(state.portalList, function(a, b)
-        local pa = catPriority[a.displayGroup] or 999
-        local pb = catPriority[b.displayGroup] or 999
+        local pa = CAT_PRIORITY[a.displayGroup] or 999
+        local pb = CAT_PRIORITY[b.displayGroup] or 999
         if pa ~= pb then return pa < pb end
         return orderIndex[a] < orderIndex[b]
     end)
 
-    -- O(n) displayGroup → first-index map lets PortalNavigation's shift+wheel up-branch lookup the prior-category boundary instead of O(n²) walk-back per notch.
+    -- O(n) displayGroup → first-index map lets PortalNavigation's shift+wheel up-branch lookup the prior-category boundary instead of O(n²) walk-back per notch; lowercase the search fields once so type-to-search doesn't re-:lower() every item per keystroke.
+    local categoryNames = addon.PortalData.CategoryNames
     state.firstIndexOfCategory = {}
     for i, item in ipairs(state.portalList) do
         local cat = item.displayGroup
         if state.firstIndexOfCategory[cat] == nil then state.firstIndexOfCategory[cat] = i end
+        item.searchShort = item.short and item.short:lower() or nil
+        item.searchName  = item.name and item.name:lower() or nil
+        item.searchInst  = item.instanceName and item.instanceName:lower() or nil
+        local catName = categoryNames[item.category]
+        item.searchCategory = catName and catName:lower() or nil
     end
 
     RepaintIcons()
 end
 
+-- Coalesce the PEW / ApplySettings / housing / SPELLS_CHANGED burst into one trailing scan; the combat check lives inside the callback so a lockdown that starts mid-window still defers via pendingRefresh instead of silently dropping the scan.
 local function RequestRefresh()
-    if addon.PortalCombat.CanInteract() then
-        RefreshDock()
-    else
-        state.pendingRefresh = true
-    end
+    Orbit.Async:Debounce("OrbitPortal_Refresh", function()
+        if addon.PortalCombat.CanInteract() then
+            RefreshDock()
+        else
+            state.pendingRefresh = true
+        end
+    end, REFRESH_DEBOUNCE)
 end
 
 ctx.RefreshDock = RefreshDock
@@ -283,24 +321,29 @@ local function CreateDock()
     dock.content = content
     ctx.content = content
 
-    addon.PortalNavigation.Install(ctx)
-
-    dock:SetScript("OnEnter", function(self)
+    -- Single hover-enter / hover-exit path shared by the dock, every icon, and the search-frame reconciler, so a missed OnLeave can't leave the dock revealed or the keyboard captured.
+    local function HoverEnter()
         state.isMouseOver = true
         addon.PortalNavigation.ShowSearch()
-        self:SetAlpha(1)
+        dock:SetAlpha(1)
         addon.PortalReveal.Reveal(ctx)
-    end)
+    end
+    ctx.HoverEnter = HoverEnter
 
-    dock:SetScript("OnLeave", function(self)
-        if not IsCursorOverDock() then
-            state.isMouseOver = false
-            addon.PortalNavigation.HideSearch()
-            addon.PortalNavigation.ClearSearchBuffer()
-            self:SetAlpha(1)
-            addon.PortalReveal.Conceal(ctx)
-        end
-    end)
+    local function HoverExit()
+        if IsCursorOverDock() then return end
+        state.isMouseOver = false
+        addon.PortalNavigation.HideSearch()
+        addon.PortalNavigation.ClearSearchBuffer()
+        dock:SetAlpha(1)
+        addon.PortalReveal.Conceal(ctx)
+    end
+    ctx.HoverExit = HoverExit
+
+    addon.PortalNavigation.Install(ctx)
+
+    dock:SetScript("OnEnter", HoverEnter)
+    dock:SetScript("OnLeave", HoverExit)
 
     dock:SetAlpha(RESTING_ALPHA)
     dock.orbitAutoOrient = true
@@ -519,13 +562,19 @@ function Plugin:OnLoad()
     RequestRefresh()
     addon.PortalReveal.Install(ctx)
 
-    -- Keep swirls live without ScanAll: RefreshCooldowns mutates state.portalList in place, then RepaintIcons feeds Cooldown:SetCooldown (C-sink, secret-safe).
+    -- Keep swirls live without ScanAll: RefreshCooldowns mutates state.portalList in place, then RepaintIcons feeds Cooldown:SetCooldown (C-sink, secret-safe). Skip the paint while nothing is on cooldown (the common resting state), but still paint the tick a cooldown clears so desaturation lifts.
+    local hadActiveCooldowns = false
     self._cooldownTicker = C_Timer.NewTicker(COOLDOWN_REFRESH_INTERVAL, function()
         if not dock or not addon.PortalCombat.CanInteract() then return end
         local list = state.portalList
         if not list or #list == 0 then return end
         addon.PortalScanner:RefreshCooldowns(list)
-        RepaintIcons()
+        local anyActive = false
+        for _, item in ipairs(list) do
+            if item.cooldown and item.cooldown > 0 then anyActive = true; break end
+        end
+        if anyActive or hadActiveCooldowns then RepaintIcons() end
+        hadActiveCooldowns = anyActive
     end)
 end
 

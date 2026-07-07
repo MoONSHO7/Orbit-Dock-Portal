@@ -43,7 +43,7 @@ local function GetDungeonScoreColor(score)
 end
 
 local function GetGlobalFontPath()
-    local fontName = Orbit.db.GlobalSettings.Font
+    local fontName = Orbit:GetTheme("Font")
     if fontName then
         return LibStub("LibSharedMedia-3.0"):Fetch("font", fontName) or STANDARD_TEXT_FONT
     end
@@ -70,7 +70,8 @@ local function BuildDisabledSet(plugin)
 end
 
 -- [ PER-COMPONENT APPLIERS ] ------------------------------------------------------------------------
-local function ApplyDungeonScore(icon, data, pos, disabled, cache)
+-- fontPath is resolved once per repaint by the caller; appliers never re-fetch it (LibSharedMedia lookup is not free).
+local function ApplyDungeonScore(icon, data, pos, disabled, cache, fontPath)
     local OverrideUtils = OrbitEngine.OverrideUtils
     local ApplyTextPosition = OrbitEngine.PositionUtils.ApplyTextPosition
     local eligible = not disabled.DungeonScore and data
@@ -82,7 +83,6 @@ local function ApplyDungeonScore(icon, data, pos, disabled, cache)
         return
     end
     local score = cacheEntry.dungeonScore
-    local fontPath = GetGlobalFontPath()
     local overrides = pos and pos.overrides or {}
     OverrideUtils.ApplyFontOverrides(icon.DungeonScore, overrides, DEFAULT_FONT_SIZE, fontPath)
     icon.DungeonScore:SetText(tostring(math_floor(score)))
@@ -91,14 +91,13 @@ local function ApplyDungeonScore(icon, data, pos, disabled, cache)
     icon.DungeonScore:Show()
 end
 
-local function ApplyDungeonShort(icon, data, pos, disabled)
+local function ApplyDungeonShort(icon, data, pos, disabled, fontPath)
     local OverrideUtils = OrbitEngine.OverrideUtils
     local ApplyTextPosition = OrbitEngine.PositionUtils.ApplyTextPosition
     if disabled.DungeonShort or not (data and data.short) then
         icon.DungeonShort:Hide()
         return
     end
-    local fontPath = GetGlobalFontPath()
     local overrides = pos and pos.overrides or {}
     OverrideUtils.ApplyFontOverrides(icon.DungeonShort, overrides, DEFAULT_FONT_SIZE, fontPath)
     icon.DungeonShort:SetText(data.short)
@@ -108,14 +107,13 @@ local function ApplyDungeonShort(icon, data, pos, disabled)
 end
 
 -- Disabling the timer uses SetHideCountdownNumbers so the CooldownFrameTemplate won't re-show it each tick.
-local function ApplyTimer(icon, pos, disabled)
+local function ApplyTimer(icon, pos, disabled, fontPath)
     local OverrideUtils = OrbitEngine.OverrideUtils
     local ApplyTextPosition = OrbitEngine.PositionUtils.ApplyTextPosition
     if icon.cooldown and icon.cooldown.SetHideCountdownNumbers then
         icon.cooldown:SetHideCountdownNumbers(disabled.Timer == true)
     end
     if icon.cooldownText and not disabled.Timer then
-        local fontPath = GetGlobalFontPath()
         local overrides = pos and pos.overrides or {}
         local baseSize = icon.cooldownTextBaseSize or DEFAULT_COOLDOWN_SIZE
         OverrideUtils.ApplyOverrides(icon.cooldownText, overrides, { fontSize = baseSize, fontPath = fontPath })
@@ -142,16 +140,18 @@ local function ApplyFavouriteStar(icon, pos, disabled, isFavourite)
 end
 
 -- [ PUBLIC API ] ------------------------------------------------------------------------------------
--- isFavourite is passed in so this module stays decoupled from the plugin's favourites storage.
-function Canvas.ApplyIconComponents(plugin, icon, data, mythicPlusCache, isFavourite)
-    local positions = plugin:GetSetting(1, "ComponentPositions") or {}
-    local disabled = BuildDisabledSet(plugin)
+-- isFavourite is passed in (decouples from favourites storage); paint holds the repaint-invariant reads (positions, disabled set, fontPath) resolved once per pass, so no GetSetting or LibSharedMedia fetch runs here per icon.
+function Canvas.ApplyIconComponents(icon, data, mythicPlusCache, isFavourite, paint)
+    local positions = paint.positions
+    local disabled = paint.disabled
+    local fontPath = paint.fontPath
 
-    ApplyDungeonScore (icon, data, positions.DungeonScore,  disabled, mythicPlusCache)
-    ApplyDungeonShort (icon, data, positions.DungeonShort,  disabled)
-    ApplyTimer        (icon,       positions.Timer,         disabled)
+    ApplyDungeonScore (icon, data, positions.DungeonScore,  disabled, mythicPlusCache, fontPath)
+    ApplyDungeonShort (icon, data, positions.DungeonShort,  disabled, fontPath)
+    ApplyTimer        (icon,       positions.Timer,         disabled, fontPath)
     ApplyFavouriteStar(icon,       positions.FavouriteStar, disabled, isFavourite)
 end
 
+Canvas.BuildDisabledSet = BuildDisabledSet
 Canvas.GetGlobalFontPath = GetGlobalFontPath
 Canvas.GetDungeonScoreColor = GetDungeonScoreColor

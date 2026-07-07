@@ -1,4 +1,4 @@
-## Interface: 120005, 120007
+## Interface: 120007, 120100
 ## Title: Dock: Portal
 ## Notes: A Scrollable bar for your characters portals.
 ## Author: MoONSHO7 / M7

@@ -6,14 +6,13 @@ local Orbit = Orbit
 local math_random = math.random
 local pairs = pairs
 local InCombatLockdown = InCombatLockdown
-local IsShiftKeyDown = IsShiftKeyDown
 local GetTime = GetTime
 
 -- [ CONSTANTS ] -------------------------------------------------------------------------------------
 local INITIAL_ICON_SIZE       = 36
 local MISSING_ICON_FILE_ID    = 134400
 local GCD_THRESHOLD           = 2
-local FADE_DEFAULT            = 20
+local APPEAR_DURATION         = 0.25
 
 local ICON_TEXCOORD_MIN       = 0.08
 local ICON_TEXCOORD_MAX       = 0.92
@@ -63,8 +62,6 @@ local function ApplyCircularMaskToCooldown(cooldown, mask)
 end
 
 function Icon.Create(ctx)
-    local dock = ctx.dock
-    local state = ctx.state
     local Favorites = addon.PortalFavorites
     local Tooltip = addon.PortalTooltip
 
@@ -73,6 +70,12 @@ function Icon.Create(ctx)
     icon:RegisterForClicks("AnyUp", "AnyDown")
     icon:SetSize(INITIAL_ICON_SIZE, INITIAL_ICON_SIZE)
     Orbit.Engine.Pixel:Enforce(icon)
+
+    -- The icon covers the dock's wheel zone; forward the wheel to the dock handler so scrolling over a result still scrolls/pages.
+    icon:EnableMouseWheel(true)
+    icon:SetScript("OnMouseWheel", function(self, delta)
+        if ctx.HandleWheel then ctx.HandleWheel(self, delta) end
+    end)
 
     icon.mask = icon:CreateMaskTexture()
     icon.mask:SetAllPoints()
@@ -164,35 +167,46 @@ function Icon.Create(ctx)
     icon.DungeonScoreOverlay = CreateFrame("Frame", nil, icon)
     icon.DungeonScoreOverlay:SetAllPoints()
     icon.DungeonScoreOverlay:SetFrameLevel(icon:GetFrameLevel() + (Orbit.Constants.Levels and Orbit.Constants.Levels.IconOverlay or 5))
-    icon.DungeonScore = icon.DungeonScoreOverlay:CreateFontString(nil, "OVERLAY")
+    icon.DungeonScore = icon.DungeonScoreOverlay:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     icon.DungeonScore:Hide()
-    icon.DungeonShort = icon.DungeonScoreOverlay:CreateFontString(nil, "OVERLAY")
+    icon.DungeonShort = icon.DungeonScoreOverlay:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     icon.DungeonShort:Hide()
 
     icon.border = icon:CreateTexture(nil, "OVERLAY")
     icon.border:SetPoint("CENTER")
 
-    icon:SetScript("PreClick", function(self, button)
-        if button == "RightButton" and IsShiftKeyDown() then
-            local data = self.portalData
-            if data then
-                Favorites.Toggle(ctx.plugin, data)
-                ctx.RequestRefresh()
+    -- Filter transitions fade the icon in (alpha only — SetScale is protected on secure buttons in combat); ToAlpha is set per play to the icon's fade-effect alpha so it lands exactly where a plain paint would.
+    icon.appearAnim = icon:CreateAnimationGroup()
+    icon.appearAnim:SetToFinalAlpha(true)
+    icon.appearFade = icon.appearAnim:CreateAnimation("Alpha")
+    icon.appearFade:SetFromAlpha(0)
+    icon.appearFade:SetDuration(APPEAR_DURATION)
+
+    -- Right-click toggles favourite (insecure); the cast lives on type1 (left only), so right-click never casts. Gate on `down` so the up-edge doesn't double-toggle.
+    icon:SetScript("PreClick", function(self, button, down)
+        if button == "RightButton" then
+            if down then
+                local data = self.portalData
+                if data then
+                    Favorites.Toggle(ctx.plugin, data)
+                    ctx.RequestRefresh()
+                end
             end
             return
         end
-        -- Random hearthstone re-roll: skip under lockdown — SetAttribute is protected, keep last pick.
+        if not down then return end
+        -- Random hearthstone re-roll before the left-click cast: skip under lockdown — SetAttribute is protected, keep last pick.
         local data = self.portalData
         if data and data.type == "random_hearthstone" and data.availableHearthstones and not InCombatLockdown() then
             local available = data.availableHearthstones
             if #available > 0 then
                 local chosen = available[math_random(1, #available)]
                 if chosen.type == "toy" then
-                    self:SetAttribute("type", "toy")
+                    self:SetAttribute("type1", "toy")
                     self:SetAttribute("toy", chosen.itemID)
                     self:SetAttribute("item", nil)
                 else
-                    self:SetAttribute("type", "item")
+                    self:SetAttribute("type1", "item")
                     self:SetAttribute("item", chosen.name)
                     self:SetAttribute("toy", nil)
                 end
@@ -200,7 +214,9 @@ function Icon.Create(ctx)
         end
     end)
 
-    icon:SetScript("PostClick", function(self)
+    -- Cast fires on the up-edge for these buttons; play the flourish there (once, left-click only).
+    icon:SetScript("PostClick", function(self, button, down)
+        if button ~= "LeftButton" or down then return end
         PlaySoundFile(CLICK_SOUND_PATH, "SFX")
         if self.sheenAnim then self.sheenAnim:Stop(); self.sheenAnim:Play() end
     end)
@@ -209,29 +225,30 @@ function Icon.Create(ctx)
         -- Slide carries icons outside the fixed dock zone; an icon sweeping under the cursor there must not pump reveal, or it fights conceal into a flicker. Gate on the static (padded) summon zone, not the moving icon.
         if not ctx.IsCursorOverDock() then return end
         if self.highlight then self.highlight:Show() end
-        state.isMouseOver = true
-        dock:SetAlpha(1)
-        addon.PortalReveal.Reveal(ctx)
+        ctx.HoverEnter()
         if self.portalData then Tooltip.Show(ctx, self, self.portalData) end
     end)
 
     icon:SetScript("OnLeave", function(self)
         GameTooltip:Hide()
         if self.highlight then self.highlight:Hide() end
-        -- Mouse can exit the dock via an icon without dock:OnLeave firing, so release capture here.
-        if not ctx.IsCursorOverDock() then
-            state.isMouseOver = false
-            addon.PortalNavigation.HideSearch()
-            dock:SetAlpha(1)
-            addon.PortalReveal.Conceal(ctx)
-        end
+        -- Mouse can exit the dock via an icon without dock:OnLeave firing, so release capture here (HoverExit re-checks the summon zone).
+        ctx.HoverExit()
     end)
 
     return icon
 end
 
-function Icon.Configure(ctx, icon, data, index)
-    local plugin = ctx.plugin
+-- Fade the icon in from transparent to its fade-effect alpha; called by RepaintIcons only on search-filter transitions.
+function Icon.PlayAppear(icon)
+    if not icon.appearAnim then return end
+    icon.appearFade:SetToAlpha(icon.currentAlpha or 1)
+    icon.appearAnim:Stop()
+    icon.appearAnim:Play()
+end
+
+-- paint carries the repaint-invariant reads (iconSize, fadeAmount, normalized maxVisible) resolved once per pass, so nothing here re-reads settings per icon.
+function Icon.Configure(ctx, icon, data, index, paint)
     local state = ctx.state
     local Layout = addon.PortalLayout
 
@@ -239,7 +256,7 @@ function Icon.Configure(ctx, icon, data, index)
     icon.iconIndex = index
     icon.type = data.type
 
-    local iconSize = plugin:GetSetting(1, "IconSize")
+    local iconSize = paint.iconSize
     icon:SetSize(iconSize, iconSize)
 
     local iconScale = icon:GetEffectiveScale()
@@ -275,8 +292,9 @@ function Icon.Configure(ctx, icon, data, index)
         icon.texture:SetTexture(MISSING_ICON_FILE_ID)
     end
 
+    -- Cast is bound to type1 (left mouse) only — right-click stays free for the favourite toggle and never casts.
     if state.isEditModeActive then
-        icon:SetAttribute("type", nil)
+        icon:SetAttribute("type1", nil)
         icon:SetAttribute("spell", nil)
         icon:SetAttribute("toy", nil)
         icon:SetAttribute("item", nil)
@@ -284,27 +302,27 @@ function Icon.Configure(ctx, icon, data, index)
     else
         icon:EnableMouse(true)
         if data.type == "spell" then
-            icon:SetAttribute("type", "spell")
+            icon:SetAttribute("type1", "spell")
             icon:SetAttribute("spell", data.spellID)
         elseif data.type == "toy" then
-            icon:SetAttribute("type", "toy")
+            icon:SetAttribute("type1", "toy")
             icon:SetAttribute("toy", data.itemID)
         elseif data.type == "item" then
-            icon:SetAttribute("type", "item")
+            icon:SetAttribute("type1", "item")
             icon:SetAttribute("item", data.name)
         elseif data.type == "random_hearthstone" then
             if data.availableHearthstones and #data.availableHearthstones > 0 then
                 local chosen = data.availableHearthstones[math_random(1, #data.availableHearthstones)]
                 if chosen.type == "toy" then
-                    icon:SetAttribute("type", "toy")
+                    icon:SetAttribute("type1", "toy")
                     icon:SetAttribute("toy", chosen.itemID)
                 else
-                    icon:SetAttribute("type", "item")
+                    icon:SetAttribute("type1", "item")
                     icon:SetAttribute("item", chosen.name)
                 end
             end
         elseif data.type == "housing" then
-            icon:SetAttribute("type", "teleporthome")
+            icon:SetAttribute("type1", "teleporthome")
             if data.houseInfo then
                 icon:SetAttribute("house-neighborhood-guid", data.houseInfo.neighborhoodGUID)
                 icon:SetAttribute("house-guid", data.houseInfo.houseGUID)
@@ -337,13 +355,7 @@ function Icon.Configure(ctx, icon, data, index)
     if state.isEditModeActive then
         targetAlpha = 1
     else
-        local fadeAmount = plugin:GetSetting(1, "FadeEffect")
-        -- Legacy boolean values: true = default fade, false/nil = off.
-        if fadeAmount == true then fadeAmount = FADE_DEFAULT
-        elseif fadeAmount == false then fadeAmount = 0 end
-        local maxVisibleSetting = plugin:GetSetting(1, "MaxVisible")
-        local normMaxVisible = Layout.NormalizeMaxVisible(maxVisibleSetting, #state.portalList)
-        targetAlpha = Layout.FadeAlphaForIndex(index, normMaxVisible, fadeAmount)
+        targetAlpha = Layout.FadeAlphaForIndex(index, paint.maxVisible, paint.fadeAmount)
     end
     icon.currentAlpha = targetAlpha
     icon:SetAlpha(targetAlpha)

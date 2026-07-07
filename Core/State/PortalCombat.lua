@@ -30,6 +30,7 @@ function Combat.UpdateState(ctx)
         state.isEditModeActive = false
         state.isMouseOver = false
         addon.PortalNavigation.HideSearch()
+        addon.PortalNavigation.ClearSearchBuffer()
     else
         dock:Show()
         dock:SetAlpha(RESTING_ALPHA)
