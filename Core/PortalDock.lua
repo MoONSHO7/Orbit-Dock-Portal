@@ -1,4 +1,3 @@
--- PortalDock.lua: Plugin root — registration, shared ctx/state, dock frame, RefreshDock, lifecycle.
 
 local _, addon = ...
 
@@ -27,6 +26,8 @@ local Plugin = Orbit:RegisterPlugin("Portal Dock", SYSTEM_ID, {
         Compactness = 0,
         Animation = 0,
         Favorites = {},
+        Anchor = false,
+        Position = { point = "LEFT", x = 8, y = 0 },
         ComponentPositions = {
             DungeonScore  = { anchorX = "CENTER", anchorY = "BOTTOM", offsetX = 0, offsetY = -2, justifyH = "CENTER" },
             DungeonShort  = { anchorX = "CENTER", anchorY = "TOP",    offsetX = 0, offsetY = 2,  justifyH = "CENTER" },
@@ -162,7 +163,7 @@ local function RepaintIcons()
     local animate = state.animatePaint
     state.animatePaint = nil
 
-    -- Type-to-search renders the ranked matches (state.searchFilter) instead of the full list: show each match once, min(count, maxVisible), centred in the fixed-size dock. Window with wraparound so the wheel cycles a short set (and a single match can't scroll). The full list has >= maxVisible items, so it fills every slot from the start.
+    -- Window with wraparound so the wheel cycles a short match set (a single match can't scroll); the full list always has >= maxVisible items, so it fills every slot.
     local renderList = (state.searchFilter and #state.searchFilter > 0) and state.searchFilter or state.portalList
     local renderCount = #renderList
     local shown = math_min(renderCount, maxVisible)
@@ -208,7 +209,6 @@ local function RepaintIcons()
         dock:SetHeight(dockLength)
     end
 
-    -- Semi-clamp: drag past the edge but keep CLAMP_VISIBLE_MARGIN on-screen.
     local marginX = math_max(0, dock:GetWidth() - CLAMP_VISIBLE_MARGIN)
     local marginY = math_max(0, dock:GetHeight() - CLAMP_VISIBLE_MARGIN)
     dock:SetClampRectInsets(marginX, -marginX, -marginY, marginY)
@@ -256,7 +256,7 @@ local function RefreshDock()
         return orderIndex[a] < orderIndex[b]
     end)
 
-    -- O(n) displayGroup → first-index map lets PortalNavigation's shift+wheel up-branch lookup the prior-category boundary instead of O(n²) walk-back per notch; lowercase the search fields once so type-to-search doesn't re-:lower() every item per keystroke.
+    -- First-index map lets the shift+wheel up-branch find the prior-category boundary without an O(n^2) walk-back; search fields are lowercased once so type-to-search doesn't re-:lower() them.
     local categoryNames = addon.PortalData.CategoryNames
     state.firstIndexOfCategory = {}
     for i, item in ipairs(state.portalList) do
@@ -272,7 +272,7 @@ local function RefreshDock()
     RepaintIcons()
 end
 
--- Coalesce the PEW / ApplySettings / housing / SPELLS_CHANGED burst into one trailing scan; the combat check lives inside the callback so a lockdown that starts mid-window still defers via pendingRefresh instead of silently dropping the scan.
+-- Coalesce the PEW / ApplySettings / housing / SPELLS_CHANGED burst into one trailing scan; the combat check lives inside the callback so a lockdown starting mid-window defers instead of dropping it.
 local function RequestRefresh()
     Orbit.Async:Debounce("OrbitPortal_Refresh", function()
         if addon.PortalCombat.CanInteract() then
@@ -315,7 +315,6 @@ local function CreateDock()
     end
     ctx.IsCursorOverDock = IsCursorOverDock
 
-    -- Icons live on this child so the reveal animation can move/fade them while the dock stays the fixed hover zone.
     local content = CreateFrame("Frame", nil, dock)
     content:SetAllPoints(dock)
     dock.content = content
@@ -352,7 +351,6 @@ local function CreateDock()
         options = options or {}
         local iconSize = Plugin:GetSetting(1, "IconSize")
         local iconTexture = QUESTIONMARK_ICON
-        -- Prefer a seasonal dungeon icon so DungeonScore has real-looking content to render.
         for _, item in ipairs(state.portalList or {}) do
             if item.category == "SEASONAL_DUNGEON" and item.icon then
                 iconTexture = item.icon
@@ -562,7 +560,7 @@ function Plugin:OnLoad()
     RequestRefresh()
     addon.PortalReveal.Install(ctx)
 
-    -- Keep swirls live without ScanAll: RefreshCooldowns mutates state.portalList in place, then RepaintIcons feeds Cooldown:SetCooldown (C-sink, secret-safe). Skip the paint while nothing is on cooldown (the common resting state), but still paint the tick a cooldown clears so desaturation lifts.
+    -- Skip the paint while nothing is on cooldown (the common resting state), but still paint the tick a cooldown clears so desaturation lifts.
     local hadActiveCooldowns = false
     self._cooldownTicker = C_Timer.NewTicker(COOLDOWN_REFRESH_INTERVAL, function()
         if not dock or not addon.PortalCombat.CanInteract() then return end
