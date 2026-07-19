@@ -1,5 +1,3 @@
--- PortalTooltip.lua: GameTooltip assembly for portal icons, with M+ season-best caching.
-
 local _, addon = ...
 local L = Orbit.L
 

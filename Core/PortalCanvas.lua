@@ -1,5 +1,3 @@
--- PortalCanvas.lua: Canvas Mode per-icon apply for DungeonScore, DungeonShort, Timer, FavouriteStar.
-
 local _, addon = ...
 local Orbit = Orbit
 local OrbitEngine = Orbit.Engine
@@ -140,7 +138,6 @@ local function ApplyFavouriteStar(icon, pos, disabled, isFavourite)
 end
 
 -- [ PUBLIC API ] ------------------------------------------------------------------------------------
--- isFavourite is passed in (decouples from favourites storage); paint holds the repaint-invariant reads (positions, disabled set, fontPath) resolved once per pass, so no GetSetting or LibSharedMedia fetch runs here per icon.
 function Canvas.ApplyIconComponents(icon, data, mythicPlusCache, isFavourite, paint)
     local positions = paint.positions
     local disabled = paint.disabled

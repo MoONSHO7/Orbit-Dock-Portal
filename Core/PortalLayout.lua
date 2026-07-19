@@ -1,12 +1,9 @@
--- PortalLayout.lua: Pure, stateless layout math — arc-wrap positioning and edge-fade alpha.
-
 local _, addon = ...
 
 -- [ CONSTANTS ] -------------------------------------------------------------------------------------
-local FADE_SLIDER_MAX = 100  -- Fade Effect slider max; fadeAmount/FADE_SLIDER_MAX is the per-step fade fraction.
-local FADE_DEFAULT    = 20    -- legacy boolean `true` maps to this percentage
+local FADE_SLIDER_MAX = 100
+local FADE_DEFAULT    = 20
 
--- Cache globals (hot path).
 local math_abs   = math.abs
 local math_min   = math.min
 local math_max   = math.max
@@ -18,7 +15,6 @@ local Layout = {}
 addon.PortalLayout = Layout
 
 -- [ HELPERS ] ---------------------------------------------------------------------------------------
--- Normalize maxVisible to an odd integer clamped to [3, totalItems].
 function Layout.NormalizeMaxVisible(maxVisible, totalItems)
     if maxVisible % 2 == 0 then maxVisible = maxVisible - 1 end
     return math_max(3, math_min(maxVisible, totalItems or maxVisible))
@@ -50,7 +46,6 @@ function Layout.CalculatePosition(displayIndex, maxVisible, iconSize, spacing, c
     return (x - xMin) + iconSize / 2, y
 end
 
--- Max perpendicular bulge at the middle of the wrap (used for dock thickness).
 function Layout.CalculatePerpExtent(maxVisible, iconSize, spacing, compactness)
     if compactness <= 0.001 or maxVisible < 2 then return 0 end
     local totalLength = (maxVisible - 1) * (iconSize + spacing)
@@ -59,7 +54,6 @@ function Layout.CalculatePerpExtent(maxVisible, iconSize, spacing, compactness)
     return radius * (1 - math_cos(thetaMax / 2))
 end
 
--- Full axial span (used for dock length).
 function Layout.CalculateAxialExtent(maxVisible, iconSize, spacing, compactness)
     local segment = iconSize + spacing
     if compactness <= 0.001 or maxVisible < 2 then
@@ -72,14 +66,12 @@ function Layout.CalculateAxialExtent(maxVisible, iconSize, spacing, compactness)
     return radius * (maxSin - minSin) + iconSize
 end
 
--- Normalise the FadeEffect setting: legacy boolean true = default %, false/nil = off.
 function Layout.ResolveFadeAmount(fadeAmount)
     if fadeAmount == true then return FADE_DEFAULT end
     if not fadeAmount then return 0 end
     return fadeAmount
 end
 
--- Centre icon stays 100%; each step out loses fadeAmount% (0 = off). Outer icons aren't pinned to 0.
 function Layout.FadeAlphaForIndex(iconIndex, maxVisible, fadeAmount)
     if not fadeAmount or fadeAmount <= 0 then return 1 end
     local visualCenterIndex = (maxVisible + 1) / 2

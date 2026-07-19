@@ -1,5 +1,3 @@
--- PortalCommands.lua: portal "rescan" action (M+ cache wipe + dock refresh), triggered from Spotlight.
-
 local _, addon = ...
 local Orbit = Orbit
 local L = Orbit.L

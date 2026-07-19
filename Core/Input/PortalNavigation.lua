@@ -1,5 +1,3 @@
--- PortalNavigation.lua: Wheel scroll + type-to-search input for the dock.
-
 local _, addon = ...
 local Orbit = Orbit
 
@@ -12,16 +10,16 @@ local IsShiftKeyDown = IsShiftKeyDown
 local InCombatLockdown = InCombatLockdown
 
 -- [ CONSTANTS ] -------------------------------------------------------------------------------------
-local SEARCH_BUFFER_TIMEOUT = 0.8    -- idle seconds before the typed query resets (matches the display hold)
-local DISPLAY_HOLD          = 0.8    -- typed letters stay lit this long after the last keystroke
-local DISPLAY_FADE          = 0.35   -- then fade out quickly, signalling "buffer cleared, listening for a new search"
+local SEARCH_BUFFER_TIMEOUT = 0.8
+local DISPLAY_HOLD          = 0.8
+local DISPLAY_FADE          = 0.35
 local DISPLAY_FONT_SIZE     = 20
 local DISPLAY_GAP           = 6
 local DISPLAY_LEVEL_OFFSET  = 10
 local DISPLAY_MATCH_COLOR   = { 1, 1, 1 }
 local DISPLAY_NOMATCH_COLOR = { 1, 0.25, 0.25 }
-local SCORE_EXACT_SHORT     = 5    -- top match tier: short-code exact hit
-local HOVER_POLL_INTERVAL   = 0.1    -- self-correcting hover check; releases keys if OnLeave was missed mid-repaint
+local SCORE_EXACT_SHORT     = 5
+local HOVER_POLL_INTERVAL   = 0.1
 
 -- [ MODULE ] ----------------------------------------------------------------------------------------
 local Navigation = {}
@@ -29,15 +27,14 @@ addon.PortalNavigation = Navigation
 
 local searchBuffer = ""
 local searchBufferExpiry = 0
-local preFilterScroll = 0      -- browse scrollOffset saved when a filter engages, restored when it clears
-local installedCtx             -- captured in Install so file-level helpers can reach state / RepaintIcons
+local preFilterScroll = 0
+local installedCtx
 local searchFrame
 local searchDisplay
 local searchDisplayText
 local searchFadeAnim
 
 -- [ SEARCH FILTER ] ---------------------------------------------------------------------------------
--- Drive the dock's filtered view: `items` = ranked matches to show (centred), or nil to restore the full list. RepaintIcons reads state.searchFilter; scrollOffset is saved on engage / restored on clear so browsing resumes where it left off.
 local function ApplyFilter(items)
     if not installedCtx then return end
     local state = installedCtx.state
@@ -56,7 +53,6 @@ local function ApplyFilter(items)
 end
 
 -- [ SEARCH DISPLAY ] --------------------------------------------------------------------------------
--- The typed query prints beside the dock, holds, then fades; the fade doubles as the "buffer reset, listening for a new search" cue.
 local function ClearBufferAndDisplay()
     searchBuffer = ""
     searchBufferExpiry = 0
@@ -79,7 +75,6 @@ local function ShowSearchBufferText(hasMatch)
     if searchFadeAnim then searchFadeAnim:Play() end
 end
 
--- Extend the reset timer and keep the readout lit — called on typing, TAB, and mouse movement over the dock, so the filtered results don't clear while the user reaches for them.
 local function KeepSearchAlive()
     searchBufferExpiry = GetTime() + SEARCH_BUFFER_TIMEOUT
     if searchDisplay and searchDisplay:IsShown() and searchFadeAnim then
@@ -90,7 +85,6 @@ local function KeepSearchAlive()
 end
 
 -- [ MATCHING ] --------------------------------------------------------------------------------------
--- Tiered matcher: prefix hits outrank substring hits, so a name/code that starts with the query wins over one that merely contains it; exact short-code wins outright. Category name is searched too (typing "Legion" surfaces the whole Legion Dungeons category plus any name containing it).
 local function ScoreMatch(data, needle)
     if not data then return 0 end
     local short = data.searchShort
@@ -107,7 +101,6 @@ local function ScoreMatch(data, needle)
     return 0
 end
 
--- Ranked match list (best first) as item refs, for the current query; RepaintIcons renders these as the filtered dock.
 local function RankMatches(portalList, needle)
     local entries = {}
     if needle and needle ~= "" then
@@ -136,7 +129,6 @@ function Navigation.Install(ctx)
 
     local function OnMouseWheel(_, delta)
         if not Combat.CanInteract() then return end
-        -- While filtering, the wheel pages the results and keeps the query alive; category-jump doesn't apply to a filtered view.
         local filter = state.searchFilter
         if filter and #filter > 0 then
             KeepSearchAlive()
@@ -184,7 +176,6 @@ function Navigation.Install(ctx)
         ctx.RepaintIcons()
     end
 
-    -- TAB pages the filtered results when there are more than fit, and keeps the query alive either way.
     local function PageResults()
         KeepSearchAlive()
         local filter = state.searchFilter
@@ -208,7 +199,6 @@ function Navigation.Install(ctx)
         local matches = RankMatches(state.portalList, searchBuffer)
         local hasMatch = #matches > 0
 
-        -- Filter the dock to the matches (or restore the full list on a miss); the readout goes red when nothing matches.
         ApplyFilter(hasMatch and matches or nil)
         ShowSearchBufferText(hasMatch)
     end
@@ -251,7 +241,7 @@ function Navigation.Install(ctx)
     searchFrame:SetScript("OnKeyUp",   ApplyPropagation)
     searchFrame:SetScript("OnChar", OnSearchChar)
 
-    -- RepaintIcons churns icons under a stationary cursor: an icon can be Hidden mid-hover so its OnLeave never lands, stranding this keyboard-capturing frame shown and eating every key. Poll the static summon zone while shown and release on exit; the frame is hidden (zero cost) whenever not hovering. While over the dock, cursor movement keeps a live query alive so the filtered results don't clear as the user reaches for them.
+    -- An icon can be Hidden mid-hover so its OnLeave never lands, stranding this keyboard-capturing frame shown and eating every key; poll the static summon zone instead and release on exit.
     searchFrame:SetScript("OnUpdate", function(self, elapsed)
         self.pollElapsed = (self.pollElapsed or 0) + elapsed
         if self.pollElapsed < HOVER_POLL_INTERVAL then return end

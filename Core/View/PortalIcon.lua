@@ -1,4 +1,3 @@
--- PortalIcon.lua: Secure-action icon factory + per-data configure for the portal dock.
 
 local _, addon = ...
 local Orbit = Orbit
@@ -175,7 +174,7 @@ function Icon.Create(ctx)
     icon.border = icon:CreateTexture(nil, "OVERLAY")
     icon.border:SetPoint("CENTER")
 
-    -- Filter transitions fade the icon in (alpha only — SetScale is protected on secure buttons in combat); ToAlpha is set per play to the icon's fade-effect alpha so it lands exactly where a plain paint would.
+    -- Alpha only - SetScale is protected on secure buttons in combat. ToAlpha is set per play to the icon's fade-effect alpha so it lands exactly where a plain paint would.
     icon.appearAnim = icon:CreateAnimationGroup()
     icon.appearAnim:SetToFinalAlpha(true)
     icon.appearFade = icon.appearAnim:CreateAnimation("Alpha")
@@ -222,7 +221,7 @@ function Icon.Create(ctx)
     end)
 
     icon:SetScript("OnEnter", function(self)
-        -- Slide carries icons outside the fixed dock zone; an icon sweeping under the cursor there must not pump reveal, or it fights conceal into a flicker. Gate on the static (padded) summon zone, not the moving icon.
+        -- Slide carries icons outside the fixed dock zone; gate on the static (padded) summon zone, not the moving icon, or reveal fights conceal into a flicker.
         if not ctx.IsCursorOverDock() then return end
         if self.highlight then self.highlight:Show() end
         ctx.HoverEnter()
@@ -239,7 +238,6 @@ function Icon.Create(ctx)
     return icon
 end
 
--- Fade the icon in from transparent to its fade-effect alpha; called by RepaintIcons only on search-filter transitions.
 function Icon.PlayAppear(icon)
     if not icon.appearAnim then return end
     icon.appearFade:SetToAlpha(icon.currentAlpha or 1)
@@ -262,7 +260,6 @@ function Icon.Configure(ctx, icon, data, index, paint)
     local iconScale = icon:GetEffectiveScale()
     local borderSize = Orbit.Engine.Pixel:Snap(iconSize * ICON_BORDER_SCALE, iconScale)
 
-    -- Border tiers: yellow=favourite, red=seasonal, grey=other.
     local borderAtlas
     if data.displayGroup == "FAVORITE" then
         borderAtlas = BORDER_ATLAS_FAVOURITE
@@ -292,7 +289,6 @@ function Icon.Configure(ctx, icon, data, index, paint)
         icon.texture:SetTexture(MISSING_ICON_FILE_ID)
     end
 
-    -- Cast is bound to type1 (left mouse) only — right-click stays free for the favourite toggle and never casts.
     if state.isEditModeActive then
         icon:SetAttribute("type1", nil)
         icon:SetAttribute("spell", nil)
@@ -350,7 +346,6 @@ function Icon.Configure(ctx, icon, data, index, paint)
         icon.texture:SetDesaturated(false)
     end
 
-    -- Edit mode forces alpha 1 so the layout stays visible while repositioning.
     local targetAlpha
     if state.isEditModeActive then
         targetAlpha = 1

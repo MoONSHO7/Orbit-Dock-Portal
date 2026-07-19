@@ -1,4 +1,3 @@
--- PortalScanner.lua: Runtime scanner that detects available portals for the current character.
 
 local _, addon = ...
 addon.PortalScanner = {}
@@ -27,7 +26,6 @@ local function IsToyOwned(itemID)
     return PlayerHasToy(itemID)
 end
 
--- Owned AND valid in the current zone/level.
 local function IsToyUsable(itemID)
     if not PlayerHasToy(itemID) then return false end
     return C_ToyBox.IsToyUsable(itemID)
@@ -81,7 +79,6 @@ local function GetItemDetails(itemID)
     return name, icon
 end
 
--- Owned toy or bag item; name/icon resolved only when available.
 local function ProbeItemAvailability(data)
     local available = false
     local name, icon
@@ -212,7 +209,6 @@ function Scanner:ScanSeasonalRaids()
     return results
 end
 
--- Returns ONE unified hearthstone entry that casts a random available hearthstone on click.
 function Scanner:ScanHearthstones()
     local results = {}
     local allAvailable = {}
@@ -522,7 +518,6 @@ function Scanner:ScanAll()
     allPortals.HOUSING = self:ScanHousing()
     allPortals.CLASS = self:ScanClassSpells()
 
-    -- Mage spells: self teleports + group portals share one category.
     allPortals.MAGE_TELEPORT = self:ScanMageTeleports()
     for _, item in ipairs(self:ScanMagePortals()) do
         table.insert(allPortals.MAGE_TELEPORT, item)
@@ -552,7 +547,6 @@ function Scanner:ScanAll()
     allPortals.SL_DUNGEON = filterSeasonal(self:ScanDungeonCategory(PD.SL_DUNGEON, "SL_DUNGEON"))
     allPortals.BFA_DUNGEON = filterSeasonal(self:ScanDungeonCategory(PD.BFA_DUNGEON, "BFA_DUNGEON"))
 
-    -- Raids: every expansion's raid portals fold into a single RAID category.
     allPortals.RAID = {}
     local function appendRaids(rawRaids)
         for _, item in ipairs(filterSeasonal(rawRaids)) do
@@ -577,7 +571,6 @@ function Scanner:ScanAll()
     return allPortals
 end
 
--- Flattened list with CategoryOrder priority preserved (no dividers).
 function Scanner:GetOrderedList()
     local allByCategory = self:ScanAll()
     local ordered = {}
@@ -595,7 +588,6 @@ function Scanner:GetOrderedList()
     return ordered
 end
 
--- Refresh cooldowns for an existing list (cheaper than a full rescan).
 function Scanner:RefreshCooldowns(portalList)
     for _, item in ipairs(portalList) do
         if item.type == "random_hearthstone" then

@@ -1,4 +1,3 @@
--- PortalSchema.lua: Settings UI schema for the Portal Dock plugin (Layout + Categories tabs).
 
 local _, addon = ...
 local Orbit = Orbit

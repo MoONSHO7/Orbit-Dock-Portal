@@ -1,4 +1,3 @@
--- PortalFavorites.lua: Favorite-portal persistence model. Keyed on spellID / itemID / name.
 
 local _, addon = ...
 

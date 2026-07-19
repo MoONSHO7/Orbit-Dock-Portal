@@ -1,5 +1,3 @@
--- PortalReveal.lua: Hover reveal/conceal animation for the dock content (Off / Slide / Fade).
-
 local _, addon = ...
 local Orbit = Orbit
 local OrbitEngine = Orbit.Engine

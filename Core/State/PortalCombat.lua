@@ -1,4 +1,3 @@
--- PortalCombat.lua: Combat / encounter interaction gating for the portal dock.
 
 local _, addon = ...
 
