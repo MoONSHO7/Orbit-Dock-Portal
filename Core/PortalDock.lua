@@ -358,33 +358,56 @@ local function CreateDock()
             end
         end
 
-        local preview = CreateFrame("Frame", nil, options.parent or UIParent)
+        local parent = options.parent or UIParent
+        local preview = options.reuse or CreateFrame("Frame", nil, parent)
+        preview:SetParent(parent)
+        preview:ClearAllPoints()
         preview:SetSize(iconSize, iconSize)
-        OrbitEngine.Pixel:Enforce(preview)
+        if not options.reuse then
+            OrbitEngine.Pixel:Enforce(preview)
+        end
         preview.sourceFrame = self
         preview.sourceWidth = iconSize
         preview.sourceHeight = iconSize
         preview.borderInset = 0
-        preview.previewScale = 1
-        preview.components = {}
-        preview.systemIndex = 1
+        preview._sourceBorderSize = 0
+        preview._sourceGeometryScale = self:GetEffectiveScale()
+        preview.previewScale = options.scale or 1
+        preview.components = preview.components or {}
+        wipe(preview.components)
+        preview.systemIndex = options.systemIndex or 1
 
-        local mask = preview:CreateMaskTexture()
-        mask:SetAllPoints()
-        mask:SetTexture(CIRCULAR_MASK_PATH, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+        if not preview._portalMask then
+            preview._portalMask = preview:CreateMaskTexture()
+            preview._portalMask:SetAllPoints()
+            preview._portalMask:SetTexture(CIRCULAR_MASK_PATH, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
 
-        local iconTex = preview:CreateTexture(nil, "ARTWORK")
-        iconTex:SetAllPoints()
+            preview._portalIcon = preview:CreateTexture(nil, "ARTWORK")
+            preview._portalIcon:SetAllPoints()
+            preview._portalIcon:AddMaskTexture(preview._portalMask)
+
+            preview._portalBorder = preview:CreateTexture(nil, "OVERLAY")
+            preview._portalBorder:SetPoint("CENTER")
+
+            preview._portalStarSource = preview:CreateTexture(nil, "ARTWORK")
+            preview._portalStarSource:SetAtlas(STAR_ATLAS)
+            preview._portalStarSource:SetSize(STAR_SIZE, STAR_SIZE)
+            preview._portalStarSource:Hide()
+            preview._portalStarSource.orbitOriginalWidth = STAR_SIZE
+            preview._portalStarSource.orbitOriginalHeight = STAR_SIZE
+        end
+
+        local iconTex = preview._portalIcon
         iconTex:SetTexCoord(ICON_TEXCOORD_MIN, ICON_TEXCOORD_MAX, ICON_TEXCOORD_MIN, ICON_TEXCOORD_MAX)
+        iconTex:SetVertexColor(1, 1, 1, 1)
+        iconTex:SetAlpha(1)
+        iconTex:SetDesaturated(false)
         iconTex:SetTexture(iconTexture)
-        iconTex:AddMaskTexture(mask)
 
         local borderAtlas = iconTexture ~= QUESTIONMARK_ICON and BORDER_ATLAS_SEASONAL or BORDER_ATLAS_DEFAULT
-        local borderTex = preview:CreateTexture(nil, "OVERLAY")
+        local borderTex = preview._portalBorder
         borderTex:SetAtlas(borderAtlas, false)
-        borderTex:SetPoint("CENTER")
-        local previewScale = preview:GetEffectiveScale()
-        local borderTexSize = OrbitEngine.Pixel:Snap(iconSize * ICON_BORDER_SCALE, previewScale)
+        local borderTexSize = OrbitEngine.Pixel:Snap(iconSize * ICON_BORDER_SCALE, preview._sourceGeometryScale)
         borderTex:SetSize(borderTexSize, borderTexSize)
 
         local savedPositions = Plugin:GetSetting(1, "ComponentPositions") or {}
@@ -400,11 +423,7 @@ local function CreateDock()
         if CreateDraggableComponent then
             local AnchorToCenter = OrbitEngine.PositionUtils.AnchorToCenter
             local halfW, halfH = preview.sourceWidth / 2, preview.sourceHeight / 2
-            local srcStar = preview:CreateTexture(nil, "ARTWORK")
-            srcStar:SetAtlas(STAR_ATLAS)
-            srcStar:SetSize(STAR_SIZE, STAR_SIZE)
-            srcStar:Hide()
-            srcStar.orbitOriginalWidth, srcStar.orbitOriginalHeight = 12, 12
+            local srcStar = preview._portalStarSource
 
             local saved = savedPositions.FavouriteStar or {}
             local data = {
