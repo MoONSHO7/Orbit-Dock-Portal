@@ -31,7 +31,9 @@ Load order (`Orbit_Portal.toc`) is data → pure helpers → runtime → root; n
 | `Settings/PortalCommands.lua` | `scan` command from Spotlight — wipes the M+ cache, refreshes |
 | `PortalDock.lua` | plugin root — registration, ctx, dock frame, RefreshDock, lifecycle |
 
-Orbit Core surface used: `Orbit:RegisterPlugin` / `PluginMixin` (`GetSetting`/`SetSetting`, standard + visibility events), `OrbitEngine.Config:Render`, `OrbitEngine.Frame` (settings listener, `RestorePosition`), `OrbitEngine.Pixel`, `OrbitEngine.PositionUtils` / `OverrideUtils` for Canvas Mode text, `Orbit.EventBus`, `Orbit.L`.
+Orbit Core surface used: `Orbit:RegisterPlugin` / `PluginMixin` (`GetSetting`/`SetSetting`, standard + visibility events), `OrbitEngine.Config:Render`, `OrbitEngine.FramePersistence` (settings listener, `RestorePosition`), `OrbitEngine.FrameOrientation` (drag orientation), `OrbitEngine.Pixel`, `OrbitEngine.PositionUtils` / `OverrideUtils` for Canvas Mode text, `Orbit.EventBus`, `Orbit.L`.
+
+Dock geometry follows Orbit's sizing contract: `IconSize` is a logical content dimension snapped at render time, while `Spacing` and the compact thickness pad are physical-pixel details resolved against the dock's effective scale.
 
 ## Gotchas
 - Dependency direction is inward only: `PortalDock` → sibling modules → `PortalLayout` / `PortalCanvas` / `PortalData`.
@@ -43,6 +45,7 @@ Orbit Core surface used: `Orbit:RegisterPlugin` / `PluginMixin` (`GetSetting`/`S
 - Typeahead consumes printable keys (typing `M` must not also open the map) but passes through ESC/Enter/F-keys/arrows/modifiers and everything while an editbox is focused. Matching is prefix-then-substring ranked (prefixes win); a live query **filters** the dock to the matches (`state.searchFilter`, each shown once and centred, windowed with wraparound so the wheel cycles a short set) and prints in the bottom-right readout (red on no match). The reset timer (~0.8s) is extended by typing, `TAB`, wheel, and **cursor movement over the dock** (`KeepSearchAlive`), so the results persist while the user reaches for one; it fires only once the cursor is idle/gone, clearing the filter back to the full list. `TAB`/wheel cycle/page the results and are consumed only while a query is live (else `TAB` targets normally). The dock frame stays full-size while filtering so the hover zone can't collapse under the cursor. RepaintIcons can `Hide` an icon out from under a stationary cursor and eat its `OnLeave`, so the shown (keyboard-capturing) search frame polls `IsCursorOverDock()` throttled and runs `HoverExit` on miss, and `HideSearch` restores key propagation — together they stop the frame being stranded shown and eating the keyboard. `RestorePropagationDefault` re-seats propagation after a combat-time `/reload` (`SetPropagateKeyboardInput` is protected in combat).
 - Cooldown display uses `SetCooldown()` — no manual OnUpdate tickers.
 - `CreateCanvasPreview` is a pooled build/apply lifecycle: static mask/icon/border/source regions are built once, while every open must return and refresh `options.reuse`, wipe the component map, and reacquire draggable components through Core.
+- Portal declares DungeonScore, DungeonShort, FavouriteStar, and Timer as owned Canvas keys through the strict Core catalog. Its custom star preview normalizes legacy/v3 placement through `ComponentPlacement`; the obsolete Status disabled entry is intentionally discarded.
 - User-visible strings go through `Orbit.L` (`PLU_PORTAL_*` plugin UI, `CMD_PORTAL_*` slash output).
 
 ## Secrets

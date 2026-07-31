@@ -7,7 +7,7 @@ local pairs = pairs
 local InCombatLockdown = InCombatLockdown
 local GetTime = GetTime
 
--- [ CONSTANTS ] -------------------------------------------------------------------------------------
+-- [ CONSTANTS ] -------------------------------------------------------------------------------------------------------
 local INITIAL_ICON_SIZE       = 36
 local MISSING_ICON_FILE_ID    = 134400
 local GCD_THRESHOLD           = 2
@@ -44,7 +44,7 @@ local HIGHLIGHT_COLOR_A       = 0.35
 
 local CLICK_SOUND_PATH        = "Interface\\AddOns\\Orbit_Portal\\Audio\\switch-sound.ogg"
 
--- [ MODULE ] ----------------------------------------------------------------------------------------
+-- [ MODULE ] ----------------------------------------------------------------------------------------------------------
 local Icon = {}
 addon.PortalIcon = Icon
 

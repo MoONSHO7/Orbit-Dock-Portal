@@ -13,7 +13,7 @@ local wipe = wipe
 local InCombatLockdown = InCombatLockdown
 local GetCursorPosition = GetCursorPosition
 
--- [ PLUGIN REGISTRATION ] ---------------------------------------------------------------------------
+-- [ PLUGIN REGISTRATION ] ---------------------------------------------------------------------------------------------
 local SYSTEM_ID = "Orbit_Portal"
 
 local Plugin = Orbit:RegisterPlugin("Portal Dock", SYSTEM_ID, {
@@ -34,14 +34,18 @@ local Plugin = Orbit:RegisterPlugin("Portal Dock", SYSTEM_ID, {
             FavouriteStar = { anchorX = "RIGHT",  anchorY = "TOP",    offsetX = 1, offsetY = 1,  justifyH = "RIGHT"  },
             Timer         = { anchorX = "CENTER", anchorY = "CENTER", offsetX = 0, offsetY = 0,  justifyH = "CENTER" },
         },
-        DisabledComponents = { "DungeonShort", "Status" },
+        DisabledComponents = { "DungeonShort" },
     },
 })
 
 Plugin.canvasMode = true
 addon.PortalDock = Plugin
+OrbitEngine.CanvasMode.ComponentCatalog:RegisterDeclared("DungeonScore")
+OrbitEngine.CanvasMode.ComponentCatalog:RegisterDeclared("DungeonShort")
+OrbitEngine.CanvasMode.ComponentCatalog:RegisterDeclared("FavouriteStar")
+OrbitEngine.CanvasMode.ComponentCatalog:RegisterDeclared("Timer")
 
--- [ CONSTANTS ] -------------------------------------------------------------------------------------
+-- [ CONSTANTS ] -------------------------------------------------------------------------------------------------------
 local RESTING_ALPHA            = 1.0
 
 local INITIAL_DOCK_WIDTH       = 44
@@ -55,7 +59,9 @@ local EDIT_MODE_HIGHLIGHT_OUTSET = 5
 
 local LONG_COOLDOWN_THRESHOLD  = 1800
 local CLAMP_VISIBLE_MARGIN     = 30
--- Cheap (one C_Spell/C_Container call per existing item; no SpellBook re-scan); set-change events drive the full ScanAll path.
+local DOCK_THICKNESS_PAD       = 2
+-- Cheap (one C_Spell/C_Container call per existing item; no SpellBook re-scan); set-change events drive
+-- the full ScanAll path.
 local COOLDOWN_REFRESH_INTERVAL = 15
 local REFRESH_DEBOUNCE          = 0.1
 
@@ -69,7 +75,7 @@ local STAR_ATLAS               = "transmog-icon-favorite"
 local BORDER_ATLAS_SEASONAL    = "talents-node-choiceflyout-circle-red"
 local BORDER_ATLAS_DEFAULT     = "talents-node-choiceflyout-circle-gray"
 
--- [ STATE ] -----------------------------------------------------------------------------------------
+-- [ STATE ] -----------------------------------------------------------------------------------------------------------
 local dock
 local iconPool
 local currentOrientation = "LEFT"
@@ -87,11 +93,12 @@ local state = {
 local ctx = { plugin = Plugin, state = state }
 addon.PortalDockContext = ctx
 
--- Static sort priority (favourites first); PortalData loads before this file, so build the map once instead of per RefreshDock.
+-- Static sort priority (favourites first); PortalData loads before this file, so build the map once
+-- instead of per RefreshDock.
 local CAT_PRIORITY = {}
 for i, cat in ipairs(addon.PortalData.CategoryOrder) do CAT_PRIORITY[cat] = i end
 
--- [ ORIENTATION ] -----------------------------------------------------------------------------------
+-- [ ORIENTATION ] -----------------------------------------------------------------------------------------------------
 local function IsHorizontal()
     return currentOrientation == "TOP" or currentOrientation == "BOTTOM"
 end
@@ -117,8 +124,9 @@ local function PositionIconForOrientation(icon, dockFrame, arcOffset, centerPos,
     end
 end
 
--- [ REFRESH ORCHESTRATION ] -------------------------------------------------------------------------
--- Scan/filter/sort (heavy; set-change only) is split from icon paint (cheap; scroll + search) so navigation handlers re-position from state.portalList without ScanAll's hundreds of API calls.
+-- [ REFRESH ORCHESTRATION ] -------------------------------------------------------------------------------------------
+-- Scan/filter/sort (heavy; set-change only) is split from icon paint (cheap; scroll + search) so navigation
+-- handlers re-position from state.portalList without ScanAll's hundreds of API calls.
 local function RepaintIcons()
     local Combat = addon.PortalCombat
     if not dock or not Combat.CanInteract() then return end
@@ -139,17 +147,22 @@ local function RepaintIcons()
         return
     end
 
-    local iconSize = Plugin:GetSetting(1, "IconSize")
-    local spacing = Plugin:GetSetting(1, "Spacing")
+    local authoredIconSize = Plugin:GetSetting(1, "IconSize")
+    local authoredSpacing = Plugin:GetSetting(1, "Spacing")
     local maxVisible = Plugin:GetSetting(1, "MaxVisible")
+    local dockScale = dock:GetEffectiveScale()
+    local iconSize = OrbitEngine.Pixel:Snap(authoredIconSize, dockScale)
+    local spacing = authoredSpacing == 0 and 0 or OrbitEngine.Pixel:Multiple(authoredSpacing, dockScale)
 
     currentOrientation = OrbitEngine.FrameOrientation:DetectOrientation(dock)
-    -- Dock frame size (below) always uses the full-list maxVisible so the hover zone never collapses under the cursor while type-to-search filters the visible icons.
+    -- Dock frame size (below) always uses the full-list maxVisible so the hover zone never collapses under
+    -- the cursor while type-to-search filters the visible icons.
     maxVisible = Layout.NormalizeMaxVisible(maxVisible, totalItems)
     local compactness = Plugin:GetSetting(1, "Compactness") / 100
     local iconPoolIndex = 0
 
-    -- Repaint-invariant reads resolved once here, threaded into every icon, so the loop runs no per-icon GetSetting / LibSharedMedia fetch / disabled-set alloc (hot path: scroll + type-to-search).
+    -- Repaint-invariant reads resolved once here and threaded into every icon, so the loop runs no per-icon
+    -- GetSetting / LibSharedMedia fetch / disabled-set alloc (hot path: scroll + type-to-search).
     local paint = {
         iconSize   = iconSize,
         maxVisible = maxVisible,
@@ -163,7 +176,8 @@ local function RepaintIcons()
     local animate = state.animatePaint
     state.animatePaint = nil
 
-    -- Window with wraparound so the wheel cycles a short match set (a single match can't scroll); the full list always has >= maxVisible items, so it fills every slot.
+    -- Window with wraparound so the wheel cycles a short match set (a single match can't scroll); the full
+    -- list always has >= maxVisible items, so it fills every slot.
     local renderList = (state.searchFilter and #state.searchFilter > 0) and state.searchFilter or state.portalList
     local renderCount = #renderList
     local shown = math_min(renderCount, maxVisible)
@@ -199,7 +213,7 @@ local function RepaintIcons()
 
     local dockLength = math_max(Layout.CalculateAxialExtent(maxVisible, iconSize, spacing, compactness), iconSize)
     local perpExtent = Layout.CalculatePerpExtent(maxVisible, iconSize, spacing, compactness)
-    local dockThickness = iconSize + perpExtent + 2
+    local dockThickness = iconSize + perpExtent + OrbitEngine.Pixel:Multiple(DOCK_THICKNESS_PAD, dockScale)
 
     if IsHorizontal() then
         dock:SetWidth(dockLength)
@@ -221,7 +235,8 @@ local function RefreshDock()
     local Combat = addon.PortalCombat
     if not dock or not Combat.CanInteract() then return end
 
-    -- A rescan rebuilds portalList, so any type-to-search filter (which holds refs into the old list) is stale — drop it and render the fresh full list.
+    -- A rescan rebuilds portalList, so any type-to-search filter (which holds refs into the old list) is
+    -- stale — drop it and render the fresh full list.
     state.searchFilter = nil
 
     local Scanner = addon.PortalScanner
@@ -256,7 +271,8 @@ local function RefreshDock()
         return orderIndex[a] < orderIndex[b]
     end)
 
-    -- First-index map lets the shift+wheel up-branch find the prior-category boundary without an O(n^2) walk-back; search fields are lowercased once so type-to-search doesn't re-:lower() them.
+    -- First-index map lets the shift+wheel up-branch find the prior-category boundary without an O(n^2)
+    -- walk-back; search fields are lowercased once so type-to-search doesn't re-:lower() them.
     local categoryNames = addon.PortalData.CategoryNames
     state.firstIndexOfCategory = {}
     for i, item in ipairs(state.portalList) do
@@ -272,7 +288,8 @@ local function RefreshDock()
     RepaintIcons()
 end
 
--- Coalesce the PEW / ApplySettings / housing / SPELLS_CHANGED burst into one trailing scan; the combat check lives inside the callback so a lockdown starting mid-window defers instead of dropping it.
+-- Coalesce the PEW / ApplySettings / housing / SPELLS_CHANGED burst into one trailing scan; the combat check
+-- lives inside the callback so a lockdown starting mid-window defers instead of dropping it.
 local function RequestRefresh()
     Orbit.Async:Debounce("OrbitPortal_Refresh", function()
         if addon.PortalCombat.CanInteract() then
@@ -287,7 +304,7 @@ ctx.RefreshDock = RefreshDock
 ctx.RepaintIcons = RepaintIcons
 ctx.RequestRefresh = RequestRefresh
 
--- [ DOCK CREATION ] ---------------------------------------------------------------------------------
+-- [ DOCK CREATION ] ---------------------------------------------------------------------------------------------------
 local function CreateDock()
     dock = CreateFrame("Frame", "OrbitPortalDock", UIParent)
     dock:SetSize(INITIAL_DOCK_WIDTH, INITIAL_DOCK_HEIGHT)
@@ -298,18 +315,21 @@ local function CreateDock()
     dock:SetFrameStrata(DOCK_FRAME_STRATA)
     dock:SetFrameLevel(DOCK_FRAME_LEVEL)
     dock:SetClampedToScreen(true)
-    -- Permissive insets until RefreshDock tightens them; otherwise RestorePosition snaps a saved off-screen position on-screen before we have real dimensions.
+    -- Permissive insets until RefreshDock tightens them; otherwise RestorePosition snaps a saved off-screen
+    -- position on-screen before we have real dimensions.
     local sw, sh = GetScreenWidth(), GetScreenHeight()
     dock:SetClampRectInsets(sw, -sw, -sh, sh)
     dock:EnableMouse(true)
-    -- Enlarge the hover-summon zone past the visible dock so the cursor catches it sooner without resizing the frame (which would move the icons).
+    -- Enlarge the hover-summon zone past the visible dock so the cursor catches it sooner without resizing
+    -- the frame (which would move the icons).
     dock:SetHitRectInsets(-HOVER_HIT_INSET, -HOVER_HIT_INSET, -HOVER_HIT_INSET, -HOVER_HIT_INSET)
     dock:SetMovable(true)
     dock:RegisterForDrag("LeftButton")
 
     ctx.dock = dock
 
-    -- IsMouseOver ignores hit-rect insets, so re-expand the test rect by the same pad to keep reveal/conceal aligned with the enlarged trigger (offsets: top, bottom, left, right).
+    -- IsMouseOver ignores hit-rect insets, so re-expand the test rect by the same pad to keep reveal/conceal
+    -- aligned with the enlarged trigger (offsets: top, bottom, left, right).
     local function IsCursorOverDock()
         return dock:IsMouseOver(HOVER_HIT_INSET, -HOVER_HIT_INSET, -HOVER_HIT_INSET, HOVER_HIT_INSET)
     end
@@ -320,11 +340,11 @@ local function CreateDock()
     dock.content = content
     ctx.content = content
 
-    -- Single hover-enter / hover-exit path shared by the dock, every icon, and the search-frame reconciler, so a missed OnLeave can't leave the dock revealed or the keyboard captured.
+    -- Single hover-enter / hover-exit path shared by the dock, every icon, and the search-frame reconciler,
+    -- so a missed OnLeave can't leave the dock revealed or the keyboard captured.
     local function HoverEnter()
         state.isMouseOver = true
         addon.PortalNavigation.ShowSearch()
-        dock:SetAlpha(1)
         addon.PortalReveal.Reveal(ctx)
     end
     ctx.HoverEnter = HoverEnter
@@ -334,7 +354,6 @@ local function CreateDock()
         state.isMouseOver = false
         addon.PortalNavigation.HideSearch()
         addon.PortalNavigation.ClearSearchBuffer()
-        dock:SetAlpha(1)
         addon.PortalReveal.Conceal(ctx)
     end
     ctx.HoverExit = HoverExit
@@ -347,6 +366,11 @@ local function CreateDock()
     dock:SetAlpha(RESTING_ALPHA)
     dock.orbitAutoOrient = true
 
+    function dock:GetCanvasBorderInset()
+        return 0
+    end
+
+    dock.orbitCanvasIconGrid = true
     function dock:CreateCanvasPreview(options)
         options = options or {}
         local iconSize = Plugin:GetSetting(1, "IconSize")
@@ -359,20 +383,21 @@ local function CreateDock()
         end
 
         local parent = options.parent or UIParent
+        local sourceScale = self:GetEffectiveScale()
+        local snappedSize = OrbitEngine.Pixel:Snap(iconSize, sourceScale)
         local preview = options.reuse or CreateFrame("Frame", nil, parent)
         preview:SetParent(parent)
         preview:ClearAllPoints()
-        preview:SetSize(iconSize, iconSize)
-        if not options.reuse then
-            OrbitEngine.Pixel:Enforce(preview)
-        end
+        preview:SetSize(snappedSize, snappedSize)
         preview.sourceFrame = self
-        preview.sourceWidth = iconSize
-        preview.sourceHeight = iconSize
+        preview.sourceWidth = snappedSize
+        preview.sourceHeight = snappedSize
         preview.borderInset = 0
         preview._sourceBorderSize = 0
-        preview._sourceGeometryScale = self:GetEffectiveScale()
+        preview._sourceGeometryScale = sourceScale
         preview.previewScale = options.scale or 1
+        preview.fixedSize = true
+        preview.scalesTextWithSize = true
         preview.components = preview.components or {}
         wipe(preview.components)
         preview.systemIndex = options.systemIndex or 1
@@ -409,6 +434,20 @@ local function CreateDock()
         borderTex:SetAtlas(borderAtlas, false)
         local borderTexSize = OrbitEngine.Pixel:Snap(iconSize * ICON_BORDER_SCALE, preview._sourceGeometryScale)
         borderTex:SetSize(borderTexSize, borderTexSize)
+        preview.RefreshCanvasGeometry = function(current)
+            local currentScale = self:GetEffectiveScale() or UIParent:GetEffectiveScale()
+            local currentIconSize = Plugin:GetSetting(1, "IconSize")
+            local currentSize = OrbitEngine.Pixel:Snap(currentIconSize, currentScale)
+            current:SetSize(currentSize, currentSize)
+            current.sourceWidth = currentSize
+            current.sourceHeight = currentSize
+            current._sourceGeometryScale = currentScale
+            current._portalBorder:SetSize(
+                OrbitEngine.Pixel:Snap(currentIconSize * ICON_BORDER_SCALE, currentScale),
+                OrbitEngine.Pixel:Snap(currentIconSize * ICON_BORDER_SCALE, currentScale)
+            )
+            return currentSize, currentSize, currentScale
+        end
 
         local savedPositions = Plugin:GetSetting(1, "ComponentPositions") or {}
         local fontPath = addon.PortalCanvas.GetGlobalFontPath()
@@ -421,7 +460,7 @@ local function CreateDock()
 
         local CreateDraggableComponent = OrbitEngine.CanvasMode and OrbitEngine.CanvasMode.CreateDraggableComponent
         if CreateDraggableComponent then
-            local AnchorToCenter = OrbitEngine.PositionUtils.AnchorToCenter
+            local Placement = OrbitEngine.ComponentPlacement
             local halfW, halfH = preview.sourceWidth / 2, preview.sourceHeight / 2
             local srcStar = preview._portalStarSource
 
@@ -434,12 +473,21 @@ local function CreateDock()
                 justifyH = saved.justifyH or "RIGHT",
                 overrides = saved.overrides,
             }
-            local startX, startY = saved.posX, saved.posY
-            if startX == nil or startY == nil then
-                local cx, cy = AnchorToCenter(data.anchorX, data.anchorY, data.offsetX, data.offsetY, halfW, halfH)
-                startX = startX or cx
-                startY = startY or cy
+            for key, value in pairs(saved) do
+                data[key] = value
             end
+            local geometry = Placement:NewGeometry(
+                halfW,
+                halfH,
+                halfW,
+                halfH,
+                STAR_SIZE,
+                STAR_SIZE,
+                Placement.BOX_OUTER,
+                preview._sourceGeometryScale
+            )
+            data = Placement:NormalizeLegacy(data, geometry, Placement.POLICY_STANDARD, Placement.BOX_OUTER)
+            local startX, startY = Placement:Decode(data, geometry, Placement.POLICY_STANDARD)
             local comp = CreateDraggableComponent(preview, "FavouriteStar", srcStar, startX, startY, data)
             if comp then
                 comp:SetFrameLevel(preview:GetFrameLevel() + Orbit.Constants.Levels.Overlay)
@@ -453,7 +501,7 @@ local function CreateDock()
     return dock
 end
 
--- [ LIFECYCLE ] -------------------------------------------------------------------------------------
+-- [ LIFECYCLE ] -------------------------------------------------------------------------------------------------------
 function Plugin:OnLoad()
     dock = CreateDock()
     self.frame = dock
@@ -469,10 +517,10 @@ function Plugin:OnLoad()
     dock.orbitNoSnap = true
     dock.orbitSelectionOutset = EDIT_MODE_HIGHLIGHT_OUTSET
 
-    OrbitEngine.Frame:AttachSettingsListener(dock, self, 1)
+    OrbitEngine.FramePersistence:AttachSettingsListener(dock, self, 1)
 
     -- Orientation flips swap width/height, so re-anchor to keep the dock under the cursor mid-drag.
-    OrbitEngine.Frame:RegisterOrientationCallback(dock, function(orientation)
+    OrbitEngine.FrameOrientation:RegisterCallback(dock, function(orientation)
         if currentOrientation == orientation then return end
 
         local cursorX, cursorY = GetCursorPosition()
@@ -503,7 +551,7 @@ function Plugin:OnLoad()
         OrbitEngine.FrameSelection:UpdateVisuals(dock)
     end
 
-    OrbitEngine.Frame:RestorePosition(dock, self, 1)
+    OrbitEngine.FramePersistence:RestorePosition(dock, self, 1)
 
     self.eventFrame = CreateFrame("Frame")
     self.eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
@@ -524,7 +572,8 @@ function Plugin:OnLoad()
                 state.pendingRefresh = false
                 RefreshDock()
             else
-                -- RefreshDock re-seats the reveal via RepaintIcons; with no pending refresh, re-seat any tween stranded when combat hid the dock.
+                -- RefreshDock re-seats the reveal via RepaintIcons; with no pending refresh, re-seat any
+                -- tween stranded when combat hid the dock.
                 addon.PortalReveal.OnRepaint(ctx)
             end
         elseif event == "PLAYER_REGEN_DISABLED" then
@@ -579,7 +628,8 @@ function Plugin:OnLoad()
     RequestRefresh()
     addon.PortalReveal.Install(ctx)
 
-    -- Skip the paint while nothing is on cooldown (the common resting state), but still paint the tick a cooldown clears so desaturation lifts.
+    -- Skip the paint while nothing is on cooldown (the common resting state), but still paint the tick a
+    -- cooldown clears so desaturation lifts.
     local hadActiveCooldowns = false
     self._cooldownTicker = C_Timer.NewTicker(COOLDOWN_REFRESH_INTERVAL, function()
         if not dock or not addon.PortalCombat.CanInteract() then return end
@@ -610,11 +660,16 @@ function Plugin:OnDisable()
     end
 end
 
+-- Hidden state goes through the lifecycle door, not a raw alpha write: OOCFade arbitrates dock alpha and
+-- only honours the hide once orbitHiddenByAlpha is set. IsFrameMountedHidden adds this frame's own opt-in.
 function Plugin:UpdateVisibility()
     if not dock then return end
-    local shouldHide = (C_PetBattles and C_PetBattles.IsInBattle()) or (UnitHasVehicleUI and UnitHasVehicleUI("player"))
-        or (Orbit.MountedVisibility and Orbit.MountedVisibility:ShouldHide())
-    dock:SetAlpha(shouldHide and 0 or RESTING_ALPHA)
+    local shouldHide = (C_PetBattles and C_PetBattles.IsInBattle())
+        or (UnitHasVehicleUI and UnitHasVehicleUI("player"))
+        or (Orbit.VisibilityEngine and Orbit.VisibilityEngine:IsFrameMountedHidden(self.name, 1))
+        or false
+    Orbit.OOCFadeService:SetLifecycleHidden(dock, shouldHide)
+    dock:EnableMouse(not shouldHide)
 end
 
 function Plugin:ApplySettings()

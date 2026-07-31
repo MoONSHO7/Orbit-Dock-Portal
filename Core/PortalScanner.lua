@@ -6,7 +6,7 @@ local L = Orbit.L
 local Scanner = addon.PortalScanner
 local PD = addon.PortalData
 
--- [ CONSTANTS ] -------------------------------------------------------------------------------------
+-- [ CONSTANTS ] -------------------------------------------------------------------------------------------------------
 local HEARTHSTONE_ITEM_ID       = 6948
 local HEARTHSTONE_ICON_FALLBACK = 134414
 local ENGINEERING_SKILL_LINE    = 202
@@ -17,7 +17,7 @@ local PLAYER_FACTION = UnitFactionGroup("player")
 
 local cachedHouseList
 
--- [ DETECTION FUNCTIONS ] ---------------------------------------------------------------------------
+-- [ DETECTION FUNCTIONS ] ---------------------------------------------------------------------------------------------
 local function IsSpellAvailable(spellID)
     return C_SpellBook.IsSpellKnown(spellID)
 end
@@ -92,7 +92,7 @@ local function ProbeItemAvailability(data)
     return available, name, icon
 end
 
--- [ CATEGORY SCANNERS ] -----------------------------------------------------------------------------
+-- [ CATEGORY SCANNERS ] -----------------------------------------------------------------------------------------------
 function Scanner:ScanDungeonCategory(categoryData, categoryName)
     local results = {}
 
@@ -508,7 +508,7 @@ function Scanner:RequestHousingData()
     end
 end
 
--- [ MAIN SCAN FUNCTION ] ----------------------------------------------------------------------------
+-- [ MAIN SCAN FUNCTION ] ----------------------------------------------------------------------------------------------
 function Scanner:ScanAll()
     local allPortals = {}
 

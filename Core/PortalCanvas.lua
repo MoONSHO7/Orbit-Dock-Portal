@@ -2,7 +2,7 @@ local _, addon = ...
 local Orbit = Orbit
 local OrbitEngine = Orbit.Engine
 
--- [ CONSTANTS ] -------------------------------------------------------------------------------------
+-- [ CONSTANTS ] -------------------------------------------------------------------------------------------------------
 local DEFAULT_FONT_SIZE        = 10
 local DEFAULT_COOLDOWN_SIZE    = 12
 local DUNGEON_SCORE_DEFAULT_OY = -2
@@ -28,7 +28,7 @@ local ipairs = ipairs
 local Canvas = {}
 addon.PortalCanvas = Canvas
 
--- [ HELPERS ] ---------------------------------------------------------------------------------------
+-- [ HELPERS ] ---------------------------------------------------------------------------------------------------------
 local function GetDungeonScoreColor(score)
     local c
     if     score >= SCORE_TIER_LEGENDARY then c = SCORE_COLOR_LEGENDARY
@@ -67,7 +67,7 @@ local function BuildDisabledSet(plugin)
     return disabled
 end
 
--- [ PER-COMPONENT APPLIERS ] ------------------------------------------------------------------------
+-- [ PER-COMPONENT APPLIERS ] ------------------------------------------------------------------------------------------
 -- fontPath is resolved once per repaint by the caller; appliers never re-fetch it (LibSharedMedia lookup is not free).
 local function ApplyDungeonScore(icon, data, pos, disabled, cache, fontPath)
     local OverrideUtils = OrbitEngine.OverrideUtils
@@ -137,7 +137,7 @@ local function ApplyFavouriteStar(icon, pos, disabled, isFavourite)
     icon.FavouriteStarShadow:Show()
 end
 
--- [ PUBLIC API ] ------------------------------------------------------------------------------------
+-- [ PUBLIC API ] ------------------------------------------------------------------------------------------------------
 function Canvas.ApplyIconComponents(icon, data, mythicPlusCache, isFavourite, paint)
     local positions = paint.positions
     local disabled = paint.disabled

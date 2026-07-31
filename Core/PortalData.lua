@@ -4,7 +4,7 @@ addon.PortalData = {}
 local L = Orbit.L
 local PD = addon.PortalData
 
--- [ CATEGORY CONFIGURATION ] ------------------------------------------------------------------------
+-- [ CATEGORY CONFIGURATION ] ------------------------------------------------------------------------------------------
 PD.CategoryOrder = {
     "HEARTHSTONE",
     "HOUSING",
@@ -53,7 +53,7 @@ PD.CategoryNames = {
     TOY              = L.PLU_PORTAL_CAT_TOY,
 }
 
--- [ CURRENT SEASON CONFIGURATION (Update each season!) ] --------------------------------------------
+-- [ CURRENT SEASON CONFIGURATION (Update each season!) ] --------------------------------------------------------------
 PD.CURRENT_SEASON_DUNGEONS = {
     1254572,  -- Path of Devoted Magistry → Magisters' Terrace (Midnight)
     1254559,  -- Path of Cavernous Depths → Maisara Caverns (Midnight)
@@ -68,7 +68,7 @@ PD.CURRENT_SEASON_DUNGEONS = {
 -- Current raid tier (Midnight Season 1) — populate once the raid teleport spellIDs ship.
 PD.CURRENT_SEASON_RAIDS = {}
 
--- [ DUNGEON PORTALS BY EXPANSION ] ------------------------------------------------------------------
+-- [ DUNGEON PORTALS BY EXPANSION ] ------------------------------------------------------------------------------------
 PD.MIDNIGHT_DUNGEON = {
     { spellID = 1254572, name = "Magisters' Terrace",  short = "MT",  challengeModeID = 558 },
     { spellID = 1254559, name = "Maisara Caverns",     short = "MC",  challengeModeID = 560 },
@@ -189,7 +189,7 @@ PD.CLASSIC_DUNGEON = {
     { spellID = 131229, name = "Scarlet Monastery" },
 }
 
--- [ HEARTHSTONES ] ----------------------------------------------------------------------------------
+-- [ HEARTHSTONES ] ----------------------------------------------------------------------------------------------------
 PD.HEARTHSTONE_SHARED = {
     { itemID = 6948, name = "Hearthstone", type = "item" },
     
@@ -232,7 +232,7 @@ PD.HEARTHSTONE_UNIQUE = {
     { itemID = 141605, name = "Flight Master's Whistle", type = "item" },
 }
 
--- [ CLASS PORTALS ] ---------------------------------------------------------------------------------
+-- [ CLASS PORTALS ] ---------------------------------------------------------------------------------------------------
 PD.CLASS = {
     { spellID = 50977, name = "Death Gate", class = "DEATHKNIGHT" },
     
@@ -246,7 +246,7 @@ PD.CLASS = {
     { spellID = 556, name = "Astral Recall", class = "SHAMAN" },
 }
 
--- [ MAGE TELEPORTS (Personal) ] ---------------------------------------------------------------------
+-- [ MAGE TELEPORTS (Personal) ] ---------------------------------------------------------------------------------------
 PD.MAGE_TELEPORT = {
     { spellID = 3561, name = "Teleport: Stormwind", faction = "Alliance" },
     { spellID = 3562, name = "Teleport: Ironforge", faction = "Alliance" },
@@ -279,7 +279,7 @@ PD.MAGE_TELEPORT = {
     { spellID = 120145, name = "Ancient Teleport: Dalaran" },
 }
 
--- [ MAGE PORTALS (Group) ] --------------------------------------------------------------------------
+-- [ MAGE PORTALS (Group) ] --------------------------------------------------------------------------------------------
 PD.MAGE_PORTAL = {
     { spellID = 10059, name = "Portal: Stormwind", faction = "Alliance" },
     { spellID = 11416, name = "Portal: Ironforge", faction = "Alliance" },
@@ -312,7 +312,7 @@ PD.MAGE_PORTAL = {
     { spellID = 120146, name = "Ancient Portal: Dalaran" },
 }
 
--- [ ENGINEERING PORTALS ] ---------------------------------------------------------------------------
+-- [ ENGINEERING PORTALS ] ---------------------------------------------------------------------------------------------
 PD.ENGINEER = {
     { itemID = 18986, name = "Ultrasafe Transporter: Gadgetzan", type = "item", reqSkill = 260 },
     { itemID = 18984, name = "Dimensional Ripper - Everlook", type = "item", reqSkill = 260 },
@@ -339,7 +339,7 @@ PD.ENGINEER = {
     { itemID = 248485, name = "Wormhole Generator: Quel'Thalas", type = "toy", reqSkill = 1 },
 }
 
--- [ PORTAL TOYS (Miscellaneous) ] -------------------------------------------------------------------
+-- [ PORTAL TOYS (Miscellaneous) ] -------------------------------------------------------------------------------------
 PD.TOY = {
     { itemID = 64457, name = "The Last Relic of Argus", destination = "Random" },
     { itemID = 95567, name = "Kirin Tor Beacon", destination = "Isle of Thunder", faction = "Alliance" },

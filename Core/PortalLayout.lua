@@ -1,6 +1,6 @@
 local _, addon = ...
 
--- [ CONSTANTS ] -------------------------------------------------------------------------------------
+-- [ CONSTANTS ] -------------------------------------------------------------------------------------------------------
 local FADE_SLIDER_MAX = 100
 local FADE_DEFAULT    = 20
 
@@ -14,7 +14,7 @@ local math_pi    = math.pi
 local Layout = {}
 addon.PortalLayout = Layout
 
--- [ HELPERS ] ---------------------------------------------------------------------------------------
+-- [ HELPERS ] ---------------------------------------------------------------------------------------------------------
 function Layout.NormalizeMaxVisible(maxVisible, totalItems)
     if maxVisible % 2 == 0 then maxVisible = maxVisible - 1 end
     return math_max(3, math_min(maxVisible, totalItems or maxVisible))

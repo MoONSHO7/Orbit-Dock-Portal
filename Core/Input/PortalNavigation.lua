@@ -9,7 +9,7 @@ local GetCursorPosition = GetCursorPosition
 local IsShiftKeyDown = IsShiftKeyDown
 local InCombatLockdown = InCombatLockdown
 
--- [ CONSTANTS ] -------------------------------------------------------------------------------------
+-- [ CONSTANTS ] -------------------------------------------------------------------------------------------------------
 local SEARCH_BUFFER_TIMEOUT = 0.8
 local DISPLAY_HOLD          = 0.8
 local DISPLAY_FADE          = 0.35
@@ -21,7 +21,7 @@ local DISPLAY_NOMATCH_COLOR = { 1, 0.25, 0.25 }
 local SCORE_EXACT_SHORT     = 5
 local HOVER_POLL_INTERVAL   = 0.1
 
--- [ MODULE ] ----------------------------------------------------------------------------------------
+-- [ MODULE ] ----------------------------------------------------------------------------------------------------------
 local Navigation = {}
 addon.PortalNavigation = Navigation
 
@@ -34,7 +34,7 @@ local searchDisplay
 local searchDisplayText
 local searchFadeAnim
 
--- [ SEARCH FILTER ] ---------------------------------------------------------------------------------
+-- [ SEARCH FILTER ] ---------------------------------------------------------------------------------------------------
 local function ApplyFilter(items)
     if not installedCtx then return end
     local state = installedCtx.state
@@ -52,7 +52,7 @@ local function ApplyFilter(items)
     if installedCtx.RepaintIcons then installedCtx.RepaintIcons() end
 end
 
--- [ SEARCH DISPLAY ] --------------------------------------------------------------------------------
+-- [ SEARCH DISPLAY ] --------------------------------------------------------------------------------------------------
 local function ClearBufferAndDisplay()
     searchBuffer = ""
     searchBufferExpiry = 0
@@ -84,7 +84,7 @@ local function KeepSearchAlive()
     end
 end
 
--- [ MATCHING ] --------------------------------------------------------------------------------------
+-- [ MATCHING ] --------------------------------------------------------------------------------------------------------
 local function ScoreMatch(data, needle)
     if not data then return 0 end
     local short = data.searchShort

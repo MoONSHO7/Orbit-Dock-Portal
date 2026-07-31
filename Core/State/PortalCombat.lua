@@ -1,10 +1,7 @@
 
 local _, addon = ...
 
--- [ CONSTANTS ] -------------------------------------------------------------------------------------
-local RESTING_ALPHA = 1.0
-
--- [ MODULE ] ----------------------------------------------------------------------------------------
+-- [ MODULE ] ----------------------------------------------------------------------------------------------------------
 local Combat = {}
 addon.PortalCombat = Combat
 
@@ -32,8 +29,9 @@ function Combat.UpdateState(ctx)
         addon.PortalNavigation.ClearSearchBuffer()
     else
         dock:Show()
-        dock:SetAlpha(RESTING_ALPHA)
-        dock:EnableMouse(true)
+        -- Re-assert the real visibility state; a flat alpha/mouse reset here would outrank a live pet-battle,
+        -- vehicle or mounted hide that is still in effect when the fight ends.
+        ctx.plugin:UpdateVisibility()
         addon.PortalNavigation.RestorePropagationDefault()
         if ctx.IsCursorOverDock() then
             state.isMouseOver = true

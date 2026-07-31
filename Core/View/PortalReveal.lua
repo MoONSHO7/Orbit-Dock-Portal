@@ -7,14 +7,14 @@ local math_max = math.max
 local math_abs = math.abs
 local InCombatLockdown = InCombatLockdown
 
--- [ CONSTANTS ] -------------------------------------------------------------------------------------
+-- [ CONSTANTS ] -------------------------------------------------------------------------------------------------------
 local MODE_OFF         = 0
 local MODE_SLIDE       = 1
 local MODE_FADE        = 2
 local ANIM_DURATION    = 0.18
 local PROGRESS_EPSILON = 0.01
 
--- [ MODULE ] ----------------------------------------------------------------------------------------
+-- [ MODULE ] ----------------------------------------------------------------------------------------------------------
 local Reveal = {}
 addon.PortalReveal = Reveal
 
@@ -27,7 +27,7 @@ local target        = 1
 local hiddenOffsetX = 0
 local hiddenOffsetY = 0
 
--- [ STATE ] -----------------------------------------------------------------------------------------
+-- [ STATE ] -----------------------------------------------------------------------------------------------------------
 local function ComputeHiddenOffset(ctx)
     local dock = ctx.dock
     local orientation = OrbitEngine.FrameOrientation:DetectOrientation(dock)
@@ -65,7 +65,7 @@ local function ApplyProgress()
     end
 end
 
--- [ TWEEN DRIVER ] ----------------------------------------------------------------------------------
+-- [ TWEEN DRIVER ] ----------------------------------------------------------------------------------------------------
 local function EnsureDriver()
     if driver then return end
     driver = CreateFrame("Frame", nil, UIParent)
@@ -104,7 +104,7 @@ local function StartTween(newTarget)
     driver:Show()
 end
 
--- [ PUBLIC ] ----------------------------------------------------------------------------------------
+-- [ PUBLIC ] ----------------------------------------------------------------------------------------------------------
 function Reveal.Reveal(ctx)
     if mode == MODE_OFF then return end
     StartTween(1)
