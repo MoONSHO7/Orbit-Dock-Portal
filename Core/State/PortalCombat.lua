@@ -29,8 +29,6 @@ function Combat.UpdateState(ctx)
         addon.PortalNavigation.ClearSearchBuffer()
     else
         dock:Show()
-        -- Re-assert the real visibility state; a flat alpha/mouse reset here would outrank a live pet-battle,
-        -- vehicle or mounted hide that is still in effect when the fight ends.
         ctx.plugin:UpdateVisibility()
         addon.PortalNavigation.RestorePropagationDefault()
         if ctx.IsCursorOverDock() then

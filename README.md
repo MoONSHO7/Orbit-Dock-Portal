@@ -11,7 +11,7 @@ Replaces standalone portal addons with a compact dock of available teleports, po
 
 - `ctx.RefreshDock()` — full rescan + filter + sort + paint, combat-gated. Set-change events only (category toggle, rescan, `SPELLS_CHANGED`, `PLAYER_ENTERING_WORLD`).
 - `ctx.RepaintIcons()` — paint-only from cached `state.portalList`, no Scanner call. Hot paths: scroll, type-to-search, cooldown ticker. Renders `state.searchFilter` (ranked matches) when set, else the full list; shows each item once — `min(count, maxVisible)` centred — windowing `renderList` with wraparound so the wheel cycles a short result set (a single match can't scroll). The dock **frame** always sizes to the full-list `maxVisible` so the hover zone never collapses under the cursor while filtering.
-- `ctx.RequestRefresh()` — debounced (`Orbit.Async`, key `OrbitPortal_Refresh`): coalesces the PEW/ApplySettings/housing/`SPELLS_CHANGED` burst into one trailing scan, refreshing now or deferring `pendingRefresh` to `PLAYER_REGEN_ENABLED` when combat starts mid-window. Use in any handler that may fire in combat or in bursts.
+- `ctx.RequestRefresh()` — debounced (`Orbit.Async`, key `OrbitPortal_Refresh`): coalesces the PEW/ApplySettings/housing/`SPELLS_CHANGED`/`TOYS_UPDATED` burst into one trailing scan, refreshing now or deferring `pendingRefresh` to `PLAYER_REGEN_ENABLED` when combat starts mid-window. Use in any handler that may fire in combat or in bursts.
 
 Load order (`Orbit_Portal.toc`) is data → pure helpers → runtime → root; no sibling requires `PortalDock` at file-scope load, runtime lookups via `addon.Portal*` are fine:
 

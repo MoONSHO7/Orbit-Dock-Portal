@@ -68,7 +68,6 @@ local function BuildDisabledSet(plugin)
 end
 
 -- [ PER-COMPONENT APPLIERS ] ------------------------------------------------------------------------------------------
--- fontPath is resolved once per repaint by the caller; appliers never re-fetch it (LibSharedMedia lookup is not free).
 local function ApplyDungeonScore(icon, data, pos, disabled, cache, fontPath)
     local OverrideUtils = OrbitEngine.OverrideUtils
     local ApplyTextPosition = OrbitEngine.PositionUtils.ApplyTextPosition

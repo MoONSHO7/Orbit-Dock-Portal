@@ -60,8 +60,6 @@ local EDIT_MODE_HIGHLIGHT_OUTSET = 5
 local LONG_COOLDOWN_THRESHOLD  = 1800
 local CLAMP_VISIBLE_MARGIN     = 30
 local DOCK_THICKNESS_PAD       = 2
--- Cheap (one C_Spell/C_Container call per existing item; no SpellBook re-scan); set-change events drive
--- the full ScanAll path.
 local COOLDOWN_REFRESH_INTERVAL = 15
 local REFRESH_DEBOUNCE          = 0.1
 
@@ -93,8 +91,6 @@ local state = {
 local ctx = { plugin = Plugin, state = state }
 addon.PortalDockContext = ctx
 
--- Static sort priority (favourites first); PortalData loads before this file, so build the map once
--- instead of per RefreshDock.
 local CAT_PRIORITY = {}
 for i, cat in ipairs(addon.PortalData.CategoryOrder) do CAT_PRIORITY[cat] = i end
 
@@ -103,7 +99,6 @@ local function IsHorizontal()
     return currentOrientation == "TOP" or currentOrientation == "BOTTOM"
 end
 
--- CENTER-anchored so scale expands symmetrically; axis inset by iconSize/2 from the dock edge.
 local function PositionIconForOrientation(icon, dockFrame, arcOffset, centerPos, iconSize)
     icon:ClearAllPoints()
     local halfIcon = iconSize / 2
@@ -125,8 +120,6 @@ local function PositionIconForOrientation(icon, dockFrame, arcOffset, centerPos,
 end
 
 -- [ REFRESH ORCHESTRATION ] -------------------------------------------------------------------------------------------
--- Scan/filter/sort (heavy; set-change only) is split from icon paint (cheap; scroll + search) so navigation
--- handlers re-position from state.portalList without ScanAll's hundreds of API calls.
 local function RepaintIcons()
     local Combat = addon.PortalCombat
     if not dock or not Combat.CanInteract() then return end
@@ -155,14 +148,10 @@ local function RepaintIcons()
     local spacing = authoredSpacing == 0 and 0 or OrbitEngine.Pixel:Multiple(authoredSpacing, dockScale)
 
     currentOrientation = OrbitEngine.FrameOrientation:DetectOrientation(dock)
-    -- Dock frame size (below) always uses the full-list maxVisible so the hover zone never collapses under
-    -- the cursor while type-to-search filters the visible icons.
     maxVisible = Layout.NormalizeMaxVisible(maxVisible, totalItems)
     local compactness = Plugin:GetSetting(1, "Compactness") / 100
     local iconPoolIndex = 0
 
-    -- Repaint-invariant reads resolved once here and threaded into every icon, so the loop runs no per-icon
-    -- GetSetting / LibSharedMedia fetch / disabled-set alloc (hot path: scroll + type-to-search).
     local paint = {
         iconSize   = iconSize,
         maxVisible = maxVisible,
@@ -172,12 +161,9 @@ local function RepaintIcons()
         disabled   = Canvas.BuildDisabledSet(Plugin),
     }
 
-    -- One-shot flag set by the search filter engaging/clearing: fade the new icon set in instead of snapping.
     local animate = state.animatePaint
     state.animatePaint = nil
 
-    -- Window with wraparound so the wheel cycles a short match set (a single match can't scroll); the full
-    -- list always has >= maxVisible items, so it fills every slot.
     local renderList = (state.searchFilter and #state.searchFilter > 0) and state.searchFilter or state.portalList
     local renderCount = #renderList
     local shown = math_min(renderCount, maxVisible)
@@ -235,8 +221,6 @@ local function RefreshDock()
     local Combat = addon.PortalCombat
     if not dock or not Combat.CanInteract() then return end
 
-    -- A rescan rebuilds portalList, so any type-to-search filter (which holds refs into the old list) is
-    -- stale — drop it and render the fresh full list.
     state.searchFilter = nil
 
     local Scanner = addon.PortalScanner
@@ -244,7 +228,6 @@ local function RefreshDock()
 
     local rawList = Scanner:GetOrderedList()
 
-    -- displayGroup pins favourites without clobbering item.category (still drives seasonal ring colour + M+ rendering).
     for _, item in ipairs(rawList) do
         item.displayGroup = Favorites.IsFavorite(Plugin, item) and "FAVORITE" or item.category
     end
@@ -271,8 +254,6 @@ local function RefreshDock()
         return orderIndex[a] < orderIndex[b]
     end)
 
-    -- First-index map lets the shift+wheel up-branch find the prior-category boundary without an O(n^2)
-    -- walk-back; search fields are lowercased once so type-to-search doesn't re-:lower() them.
     local categoryNames = addon.PortalData.CategoryNames
     state.firstIndexOfCategory = {}
     for i, item in ipairs(state.portalList) do
@@ -288,8 +269,6 @@ local function RefreshDock()
     RepaintIcons()
 end
 
--- Coalesce the PEW / ApplySettings / housing / SPELLS_CHANGED burst into one trailing scan; the combat check
--- lives inside the callback so a lockdown starting mid-window defers instead of dropping it.
 local function RequestRefresh()
     Orbit.Async:Debounce("OrbitPortal_Refresh", function()
         if addon.PortalCombat.CanInteract() then
@@ -315,21 +294,16 @@ local function CreateDock()
     dock:SetFrameStrata(DOCK_FRAME_STRATA)
     dock:SetFrameLevel(DOCK_FRAME_LEVEL)
     dock:SetClampedToScreen(true)
-    -- Permissive insets until RefreshDock tightens them; otherwise RestorePosition snaps a saved off-screen
-    -- position on-screen before we have real dimensions.
     local sw, sh = GetScreenWidth(), GetScreenHeight()
     dock:SetClampRectInsets(sw, -sw, -sh, sh)
     dock:EnableMouse(true)
-    -- Enlarge the hover-summon zone past the visible dock so the cursor catches it sooner without resizing
-    -- the frame (which would move the icons).
     dock:SetHitRectInsets(-HOVER_HIT_INSET, -HOVER_HIT_INSET, -HOVER_HIT_INSET, -HOVER_HIT_INSET)
     dock:SetMovable(true)
     dock:RegisterForDrag("LeftButton")
 
     ctx.dock = dock
 
-    -- IsMouseOver ignores hit-rect insets, so re-expand the test rect by the same pad to keep reveal/conceal
-    -- aligned with the enlarged trigger (offsets: top, bottom, left, right).
+    -- IsMouseOver ignores hit-rect insets, so re-expand the test rect by the same pad to match the enlarged trigger.
     local function IsCursorOverDock()
         return dock:IsMouseOver(HOVER_HIT_INSET, -HOVER_HIT_INSET, -HOVER_HIT_INSET, HOVER_HIT_INSET)
     end
@@ -340,8 +314,6 @@ local function CreateDock()
     dock.content = content
     ctx.content = content
 
-    -- Single hover-enter / hover-exit path shared by the dock, every icon, and the search-frame reconciler,
-    -- so a missed OnLeave can't leave the dock revealed or the keyboard captured.
     local function HoverEnter()
         state.isMouseOver = true
         addon.PortalNavigation.ShowSearch()
@@ -508,7 +480,6 @@ function Plugin:OnLoad()
 
     Orbit.OOCFadeMixin:ApplyOOCFade(dock, self, 1)
 
-    -- Prime M+ data so the first seasonal-dungeon tooltip has score/best-run without opening the M+ panel.
     C_MythicPlus.RequestMapInfo()
     C_MythicPlus.RequestCurrentAffixes()
 
@@ -519,7 +490,6 @@ function Plugin:OnLoad()
 
     OrbitEngine.FramePersistence:AttachSettingsListener(dock, self, 1)
 
-    -- Orientation flips swap width/height, so re-anchor to keep the dock under the cursor mid-drag.
     OrbitEngine.FrameOrientation:RegisterCallback(dock, function(orientation)
         if currentOrientation == orientation then return end
 
@@ -561,6 +531,7 @@ function Plugin:OnLoad()
     self.eventFrame:RegisterEvent("PLAYER_LOGIN")
     self.eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     self.eventFrame:RegisterEvent("SPELLS_CHANGED")
+    self.eventFrame:RegisterEvent("TOYS_UPDATED")
     self.eventFrame:RegisterEvent("PLAYER_HOUSE_LIST_UPDATED")
 
     self.eventFrame:SetScript("OnEvent", function(_, event, ...)
@@ -572,8 +543,6 @@ function Plugin:OnLoad()
                 state.pendingRefresh = false
                 RefreshDock()
             else
-                -- RefreshDock re-seats the reveal via RepaintIcons; with no pending refresh, re-seat any
-                -- tween stranded when combat hid the dock.
                 addon.PortalReveal.OnRepaint(ctx)
             end
         elseif event == "PLAYER_REGEN_DISABLED" then
@@ -598,7 +567,7 @@ function Plugin:OnLoad()
                 Scanner:RequestHousingData()
                 RequestRefresh()
             end)
-        elseif event == "SPELLS_CHANGED" then
+        elseif event == "SPELLS_CHANGED" or event == "TOYS_UPDATED" then
             RequestRefresh()
         elseif event == "PLAYER_ENTERING_WORLD" then
             Scanner:RequestHousingData()
@@ -628,8 +597,6 @@ function Plugin:OnLoad()
     RequestRefresh()
     addon.PortalReveal.Install(ctx)
 
-    -- Skip the paint while nothing is on cooldown (the common resting state), but still paint the tick a
-    -- cooldown clears so desaturation lifts.
     local hadActiveCooldowns = false
     self._cooldownTicker = C_Timer.NewTicker(COOLDOWN_REFRESH_INTERVAL, function()
         if not dock or not addon.PortalCombat.CanInteract() then return end
@@ -660,8 +627,6 @@ function Plugin:OnDisable()
     end
 end
 
--- Hidden state goes through the lifecycle door, not a raw alpha write: OOCFade arbitrates dock alpha and
--- only honours the hide once orbitHiddenByAlpha is set. IsFrameMountedHidden adds this frame's own opt-in.
 function Plugin:UpdateVisibility()
     if not dock then return end
     local shouldHide = (C_PetBattles and C_PetBattles.IsInBattle())

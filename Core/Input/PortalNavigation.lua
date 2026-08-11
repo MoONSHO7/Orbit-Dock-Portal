@@ -58,7 +58,6 @@ local function ClearBufferAndDisplay()
     searchBufferExpiry = 0
     ApplyFilter(nil)
     if not searchDisplay then return end
-    -- IsPlaying guard so the anim's own OnFinished doesn't re-Stop itself; a live fade (mouse-leave) is stopped.
     if searchFadeAnim and searchFadeAnim:IsPlaying() then searchFadeAnim:Stop() end
     searchDisplay:SetAlpha(1)
     searchDisplay:Hide()
@@ -148,7 +147,6 @@ function Navigation.Install(ctx)
             local currentCategory = portalList[currentCenterIndex] and portalList[currentCenterIndex].displayGroup
 
             if delta > 0 then
-                -- Up-branch uses RefreshDock's precomputed firstIndexOfCategory — was O(n²) via nested walk-back.
                 local firstIndexMap = state.firstIndexOfCategory
                 for offset = 1, totalIcons - 1 do
                     local checkIndex = ((currentCenterIndex - 1 - offset) % totalIcons) + 1
@@ -205,10 +203,8 @@ function Navigation.Install(ctx)
 
     dock:EnableMouseWheel(true)
     dock:SetScript("OnMouseWheel", OnMouseWheel)
-    -- Icons are mouse-enabled children and swallow the wheel, so they forward it here (see Icon.Create) — otherwise scrolling over a result does nothing.
     ctx.HandleWheel = OnMouseWheel
 
-    -- Child of dock so combat dock:Hide() hides this too; consumes single-char keys (letter bindings stay silent while searching) and propagates ESC/Enter/etc.
     searchFrame = CreateFrame("Frame", nil, dock)
     searchFrame:EnableKeyboard(true)
     if not InCombatLockdown() then
@@ -227,7 +223,6 @@ function Navigation.Install(ctx)
 
     local function OnKeyDown(self, key)
         if InCombatLockdown() then return end
-        -- TAB pages the filtered results while a query is live: consume it so it doesn't also target-swap. With no active query it falls through and TAB targets as usual.
         if key == "TAB" and searchBuffer ~= "" and state.isMouseOver and not state.isEditModeActive
            and not GetCurrentKeyBoardFocus() and Combat.CanInteract() then
             self:SetPropagateKeyboardInput(false)
@@ -241,7 +236,7 @@ function Navigation.Install(ctx)
     searchFrame:SetScript("OnKeyUp",   ApplyPropagation)
     searchFrame:SetScript("OnChar", OnSearchChar)
 
-    -- An icon can be Hidden mid-hover so its OnLeave never lands, stranding this keyboard-capturing frame shown and eating every key; poll the static summon zone instead and release on exit.
+    -- An icon Hidden mid-hover never fires OnLeave, stranding this keyboard-capturing frame and eating every key.
     searchFrame:SetScript("OnUpdate", function(self, elapsed)
         self.pollElapsed = (self.pollElapsed or 0) + elapsed
         if self.pollElapsed < HOVER_POLL_INTERVAL then return end
@@ -259,7 +254,6 @@ function Navigation.Install(ctx)
         end
     end)
 
-    -- Typed-query readout at the dock's bottom-right — parented to the static dock (not content), so the reveal tween never drags it; the fade animation cues the buffer reset.
     local fontPath = addon.PortalCanvas.GetGlobalFontPath()
     searchDisplay = CreateFrame("Frame", nil, dock)
     searchDisplay:SetFrameLevel(dock:GetFrameLevel() + DISPLAY_LEVEL_OFFSET)
@@ -293,7 +287,6 @@ function Navigation.HideSearch()
     searchFrame:Hide()
 end
 
--- Re-seat propagation default after a /reload that happened under combat lockdown.
 function Navigation.RestorePropagationDefault()
     if searchFrame and not InCombatLockdown() then
         searchFrame:SetPropagateKeyboardInput(true)

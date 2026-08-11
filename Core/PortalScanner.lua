@@ -22,17 +22,14 @@ local function IsSpellAvailable(spellID)
     return C_SpellBook.IsSpellKnown(spellID)
 end
 
-local function IsToyOwned(itemID)
-    return PlayerHasToy(itemID)
-end
-
 local function IsToyUsable(itemID)
     if not PlayerHasToy(itemID) then return false end
     return C_ToyBox.IsToyUsable(itemID)
 end
 
+-- GetItemCount only counts bag contents, so a worn teleport ring/cloak/tabard needs the equipped check to stay listed.
 local function HasItem(itemID)
-    return C_Item.GetItemCount(itemID) > 0
+    return C_Item.GetItemCount(itemID) > 0 or C_Item.IsEquippedItem(itemID)
 end
 
 local function MeetsFactionRequirement(data)
@@ -43,6 +40,21 @@ end
 local function MeetsClassRequirement(data)
     if not data.class then return true end
     return data.class == PLAYER_CLASS
+end
+
+local function GetProfessionRank(targetSkillLineID)
+    for _, profIndex in pairs({ GetProfessions() }) do
+        if profIndex then
+            local _, _, skillRank, _, _, _, skillLineID = GetProfessionInfo(profIndex)
+            if skillLineID == targetSkillLineID then return skillRank end
+        end
+    end
+end
+
+local function MeetsSkillRequirement(data)
+    if not data.reqSkillLine then return true end
+    local rank = GetProfessionRank(data.reqSkillLine)
+    return rank ~= nil and rank >= (data.reqSkill or 1)
 end
 
 local function GetCooldownInfo(isSpell, id)
@@ -83,7 +95,7 @@ local function ProbeItemAvailability(data)
     local available = false
     local name, icon
     if data.type == "toy" then
-        available = IsToyOwned(data.itemID)
+        available = IsToyUsable(data.itemID)
         if available then name, icon = GetItemDetails(data.itemID) end
     elseif data.type == "item" then
         available = HasItem(data.itemID)
@@ -348,7 +360,7 @@ function Scanner:ScanToys()
     local results = {}
 
     for _, data in ipairs(PD.TOY or {}) do
-        if MeetsFactionRequirement(data) then
+        if MeetsFactionRequirement(data) and MeetsSkillRequirement(data) then
             local itemID = data.itemID
             local available = false
             local name, icon
@@ -384,23 +396,8 @@ end
 function Scanner:ScanEngineeringSpells()
     local results = {}
 
-    local hasEngineering = false
-    local rank = 0
-    local professions = { GetProfessions() }
-    for _, profIndex in pairs(professions) do
-        if profIndex then
-            local _, _, skillRank, _, _, _, skillLineID = GetProfessionInfo(profIndex)
-            if skillLineID == ENGINEERING_SKILL_LINE then
-                hasEngineering = true
-                rank = skillRank
-                break
-            end
-        end
-    end
-
-    if not hasEngineering then
-        return results
-    end
+    local rank = GetProfessionRank(ENGINEERING_SKILL_LINE)
+    if not rank then return results end
 
     for _, data in ipairs(PD.ENGINEER or {}) do
         if MeetsFactionRequirement(data) and (not data.reqSkill or rank >= data.reqSkill) then
@@ -435,7 +432,6 @@ function Scanner:ScanEngineeringSpells()
     return results
 end
 
--- C_Housing may not exist on older 12.0.x builds; feature-detect before touching it.
 function Scanner:ScanHousing()
     local results = {}
 
@@ -463,7 +459,6 @@ function Scanner:ScanHousing()
         end
     end
 
-    -- Level 80+ with housing API can likely use housing; the secure macro handles the no-house case.
     if not hasHouse then
         local level = UnitLevel("player")
         if level and level >= MIN_LEVEL_FOR_HOUSING then

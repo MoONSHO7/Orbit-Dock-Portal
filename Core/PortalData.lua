@@ -55,21 +55,25 @@ PD.CategoryNames = {
 
 -- [ CURRENT SEASON CONFIGURATION (Update each season!) ] --------------------------------------------------------------
 PD.CURRENT_SEASON_DUNGEONS = {
-    1254572,  -- Path of Devoted Magistry → Magisters' Terrace (Midnight)
-    1254559,  -- Path of Cavernous Depths → Maisara Caverns (Midnight)
-    1254563,  -- Path of the Fractured Core → Nexus-Point Xenas (Midnight)
-    1254400,  -- Path of the Windrunners → Windrunner Spire (Midnight)
-    393273,   -- Path of the Draconic Diploma → Algeth'ar Academy (Dragonflight)
-    1254555,  -- Path of Unyielding Blight → Pit of Saron (Wrath of the Lich King)
-    1254551,  -- Path of Dark Dereliction → Seat of the Triumvirate (Legion)
-    159898,   -- Path of the Skies → Skyreach (Warlords of Draenor)
+    1286812,  -- Path of Venomous Evolution → Altar of Fangs (Midnight)
+    1286809,  -- Path of the Devious Smuggler → Murder Row (Midnight)
+    1286807,  -- Path of the Worthy Aspirant → Den of Nalorakk (Midnight)
+    1286801,  -- Path of the Blooming Verdure → The Blinding Vale (Midnight)
+    1286804,  -- Path of the Brutal Combatant → Voidscar Arena (Midnight)
+    1286831,  -- Path of the Slumbering Conqueror → Kings' Rest (Battle for Azeroth)
+    1286828,  -- Path of the Sacred Temple → Temple of Sethraliss (Battle for Azeroth)
+    393256,   -- Path of the Clutch Defender → Ruby Life Pools (Dragonflight)
 }
 
--- Current raid tier (Midnight Season 1) — populate once the raid teleport spellIDs ship.
 PD.CURRENT_SEASON_RAIDS = {}
 
 -- [ DUNGEON PORTALS BY EXPANSION ] ------------------------------------------------------------------------------------
 PD.MIDNIGHT_DUNGEON = {
+    { spellID = 1286812, name = "Altar of Fangs",      short = "AOF", challengeModeID = 588 },
+    { spellID = 1286809, name = "Murder Row",          short = "MR",  challengeModeID = 587 },
+    { spellID = 1286807, name = "Den of Nalorakk",     short = "DON", challengeModeID = 586 },
+    { spellID = 1286801, name = "The Blinding Vale",   short = "BV",  challengeModeID = 584 },
+    { spellID = 1286804, name = "Voidscar Arena",      short = "VA",  challengeModeID = 585 },
     { spellID = 1254572, name = "Magisters' Terrace",  short = "MT",  challengeModeID = 558 },
     { spellID = 1254559, name = "Maisara Caverns",     short = "MC",  challengeModeID = 560 },
     { spellID = 1254563, name = "Nexus-Point Xenas",   short = "NPX", challengeModeID = 559 },
@@ -103,7 +107,7 @@ PD.DF_DUNGEON = {
     { spellID = 393279, name = "The Azure Vault", short = "AV" },
     { spellID = 393273, name = "Algeth'ar Academy", short = "AA", challengeModeID = 402 },
     { spellID = 393262, name = "The Nokhud Offensive", short = "NO" },
-    { spellID = 393256, name = "Ruby Life Pools", short = "RLP" },
+    { spellID = 393256, name = "Ruby Life Pools", short = "RLP", challengeModeID = 399 },
     { spellID = 393276, name = "Neltharus", short = "NELT" },
     { spellID = 393283, name = "Halls of Infusion", short = "HOI" },
     { spellID = 393267, name = "Brackenhide Hollow", short = "BH" },
@@ -135,6 +139,8 @@ PD.SL_RAID = {
 }
 
 PD.BFA_DUNGEON = {
+    { spellID = 1286831, name = "Kings' Rest", short = "KR", challengeModeID = 249 },
+    { spellID = 1286828, name = "Temple of Sethraliss", short = "TOS", challengeModeID = 250 },
     { spellID = 424167, name = "Waycrest Manor", short = "WM" },
     { spellID = 373274, name = "Operation: Mechagon", short = "MECH" },
     { spellID = 410074, name = "The Underrot", short = "UR" },
@@ -238,12 +244,18 @@ PD.CLASS = {
     
     { spellID = 18960, name = "Teleport: Moonglade", class = "DRUID" },
     { spellID = 193753, name = "Dreamwalk", class = "DRUID" },
-    { spellID = 1238686, name = "Rootwalking", class = "DRUID" },
-    
+
     { spellID = 126892, name = "Zen Pilgrimage", class = "MONK" },
     { spellID = 126895, name = "Zen Pilgrimage: Return", class = "MONK" },
-    
+
     { spellID = 556, name = "Astral Recall", class = "SHAMAN" },
+
+    -- Racial teleports — no class tag on purpose; C_SpellBook.IsSpellKnown limits each to its own race
+    { spellID = 265225, name = "Mole Machine" },
+    { spellID = 312370, name = "Make Camp" },
+    { spellID = 312372, name = "Return to Camp" },
+    { spellID = 1238686, name = "Rootwalking" },
+    { spellID = 1238695, name = "Rootwalking: Return" },
 }
 
 -- [ MAGE TELEPORTS (Personal) ] ---------------------------------------------------------------------------------------
@@ -329,6 +341,7 @@ PD.ENGINEER = {
     
     { itemID = 168807, name = "Wormhole Generator: Kul Tiras", type = "toy", reqSkill = 1, faction = "Alliance" },
     { itemID = 168808, name = "Wormhole Generator: Zandalar", type = "toy", reqSkill = 1, faction = "Horde" },
+    { itemID = 167075, name = "Ultrasafe Transporter: Mechagon", type = "item", reqSkill = 1 },
     
     { itemID = 172924, name = "Wormhole Generator: Shadowlands", type = "toy", reqSkill = 1 },
     
@@ -341,6 +354,7 @@ PD.ENGINEER = {
 
 -- [ PORTAL TOYS (Miscellaneous) ] -------------------------------------------------------------------------------------
 PD.TOY = {
+    { itemID = 43824, name = "The Schools of Arcane Magic - Mastery", destination = "Violet Citadel (Dalaran)" },
     { itemID = 64457, name = "The Last Relic of Argus", destination = "Random" },
     { itemID = 95567, name = "Kirin Tor Beacon", destination = "Isle of Thunder", faction = "Alliance" },
     { itemID = 95568, name = "Sunreaver Beacon", destination = "Isle of Thunder", faction = "Horde" },
@@ -352,13 +366,19 @@ PD.TOY = {
     { itemID = 119183, name = "Scroll of Risky Recall", destination = "Random Old Location" },
     { itemID = 136849, name = "Nature's Beacon", destination = "Dreamgrove" },
     { itemID = 139590, name = "Scroll of Teleport: Ravenholdt", destination = "Ravenholdt" },
+    { itemID = 140324, name = "Mobile Telemancy Beacon", destination = "Shal'aran" },
     { itemID = 140493, name = "Adept's Guide to Dimensional Rifting", destination = "Random Legion" },
     { itemID = 151016, name = "Fractured Necrolyte Skull", destination = "Black Temple" },
     { itemID = 152964, name = "Greater Spatial Rift", destination = "Argus" },
+    { itemID = 153004, name = "Unstable Portal Emitter", destination = "Random" },
     { itemID = 168862, name = "G.E.A.R. Tracking Beacon", destination = "Mechagon" },
     { itemID = 180817, name = "Cypher of Relocation", destination = "Oribos" },
+    { itemID = 202046, name = "Lucky Tortollan Charm", destination = "Seeker's Vista (Stormsong)" },
+    { itemID = 243056, name = "Delver's Mana-Bound Ethergate", destination = "Dornogal" },
     { itemID = 253629, name = "Personal Key to the Arcantina", destination = "The Arcantina" },
+    { itemID = 276371, name = "Lightveil Recall Beacon", destination = "Umbral Base Camp" },
     
+    { itemID = 40585, name = "Signet of the Kirin Tor", destination = "Dalaran (Northrend)", type = "item" },
     { itemID = 40586, name = "Band of the Kirin Tor", destination = "Dalaran (Northrend)", type = "item" },
     { itemID = 44934, name = "Loop of the Kirin Tor", destination = "Dalaran (Northrend)", type = "item" },
     { itemID = 44935, name = "Ring of the Kirin Tor", destination = "Dalaran (Northrend)", type = "item" },
@@ -366,6 +386,14 @@ PD.TOY = {
     { itemID = 45689, name = "Inscribed Loop of the Kirin Tor", destination = "Dalaran (Northrend)", type = "item" },
     { itemID = 45690, name = "Inscribed Ring of the Kirin Tor", destination = "Dalaran (Northrend)", type = "item" },
     { itemID = 45691, name = "Inscribed Signet of the Kirin Tor", destination = "Dalaran (Northrend)", type = "item" },
+    { itemID = 48954, name = "Etched Band of the Kirin Tor", destination = "Dalaran (Northrend)", type = "item" },
+    { itemID = 48955, name = "Etched Loop of the Kirin Tor", destination = "Dalaran (Northrend)", type = "item" },
+    { itemID = 48956, name = "Etched Ring of the Kirin Tor", destination = "Dalaran (Northrend)", type = "item" },
+    { itemID = 48957, name = "Etched Signet of the Kirin Tor", destination = "Dalaran (Northrend)", type = "item" },
+    { itemID = 51560, name = "Runed Band of the Kirin Tor", destination = "Dalaran (Northrend)", type = "item" },
+    { itemID = 51558, name = "Runed Loop of the Kirin Tor", destination = "Dalaran (Northrend)", type = "item" },
+    { itemID = 51559, name = "Runed Ring of the Kirin Tor", destination = "Dalaran (Northrend)", type = "item" },
+    { itemID = 51557, name = "Runed Signet of the Kirin Tor", destination = "Dalaran (Northrend)", type = "item" },
     
     { itemID = 46874, name = "Argent Crusader's Tabard", destination = "Argent Tournament", type = "item" },
     { itemID = 63378, name = "Hellscream's Reach Tabard", destination = "Tol Barad", type = "item", faction = "Horde" },
@@ -373,8 +401,15 @@ PD.TOY = {
     
     { itemID = 65360, name = "Cloak of Coordination", destination = "Stormwind", type = "item", faction = "Alliance" },
     { itemID = 65274, name = "Cloak of Coordination", destination = "Orgrimmar", type = "item", faction = "Horde" },
+    { itemID = 63206, name = "Wrap of Unity", destination = "Stormwind", type = "item", faction = "Alliance" },
+    { itemID = 63207, name = "Wrap of Unity", destination = "Orgrimmar", type = "item", faction = "Horde" },
+    { itemID = 63352, name = "Shroud of Cooperation", destination = "Stormwind", type = "item", faction = "Alliance" },
+    { itemID = 63353, name = "Shroud of Cooperation", destination = "Orgrimmar", type = "item", faction = "Horde" },
     
     { itemID = 37863, name = "Direbrew's Remote", destination = "Blackrock Depths", type = "item" },
     { itemID = 52251, name = "Jaina's Locket", destination = "Dalaran (Northrend)", type = "item" },
+    { itemID = 32757, name = "Blessed Medallion of Karabor", destination = "Black Temple", type = "item" },
+    { itemID = 50287, name = "Boots of the Bay", destination = "Booty Bay", type = "item", reqSkillLine = 356, reqSkill = 200 },
+    { itemID = 142469, name = "Violet Seal of the Grand Magus", destination = "Karazhan", type = "item" },
 }
 

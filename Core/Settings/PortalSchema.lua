@@ -56,13 +56,10 @@ function Schema.Build(plugin, dialog, systemFrame, ctx)
         for _, item in ipairs(Scanner:GetOrderedList()) do
             counts[item.category] = (counts[item.category] or 0) + 1
         end
-        -- FAVORITE is always on: pinned portals show even when their source category is off.
         for _, cat in ipairs(PD.CategoryOrder) do
             local count = counts[cat] or 0
             if cat ~= "FAVORITE" and count > 0 then
                 local label = PD.CategoryNames[cat] or cat
-                -- No `key` — canonical store is EnabledCategories (onChange/getValue close over it); a `key`
-                -- would let Reset clear a dead Category_<cat> while leaving EnabledCategories intact.
                 table.insert(schema.controls, {
                     type = "checkbox", label = label, default = true,
                     valueText = "|cFFFFD100" .. count .. "|r",

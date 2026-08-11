@@ -27,7 +27,6 @@ local function SinRange(halfMax)
     return -s, s
 end
 
--- compactness 0..1 wraps the chain onto a circle (0 = straight, 1 ≈ full circle with one slot gap).
 function Layout.CalculatePosition(displayIndex, maxVisible, iconSize, spacing, compactness)
     local segment = iconSize + spacing
     local linearAxial = displayIndex * segment + iconSize / 2

@@ -18,11 +18,10 @@ local PROGRESS_EPSILON = 0.01
 local Reveal = {}
 addon.PortalReveal = Reveal
 
--- Animates `content` (the icon-bearing child), never the dock, so dock alpha/position stay owned by OOCFade/RestorePosition.
 local content
 local driver
 local mode          = MODE_OFF
-local progress      = 1   -- 1 = revealed, 0 = concealed
+local progress      = 1
 local target        = 1
 local hiddenOffsetX = 0
 local hiddenOffsetY = 0
@@ -49,7 +48,6 @@ local function RestingTarget(ctx)
     return ctx.state.isMouseOver and 1 or 0
 end
 
--- Authoritative: establishes both content dimensions for the current mode, so a mode switch never strands a stale offset/alpha.
 local function ApplyProgress()
     local parent = content:GetParent()
     content:ClearAllPoints()

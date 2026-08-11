@@ -64,13 +64,11 @@ function Icon.Create(ctx)
     local Favorites = addon.PortalFavorites
     local Tooltip = addon.PortalTooltip
 
-    -- Parented to content (not dock) so the reveal animation carries the icons.
     local icon = CreateFrame("Button", nil, ctx.content, "SecureActionButtonTemplate")
     icon:RegisterForClicks("AnyUp", "AnyDown")
     icon:SetSize(INITIAL_ICON_SIZE, INITIAL_ICON_SIZE)
     Orbit.Engine.Pixel:Enforce(icon)
 
-    -- The icon covers the dock's wheel zone; forward the wheel to the dock handler so scrolling over a result still scrolls/pages.
     icon:EnableMouseWheel(true)
     icon:SetScript("OnMouseWheel", function(self, delta)
         if ctx.HandleWheel then ctx.HandleWheel(self, delta) end
@@ -80,7 +78,6 @@ function Icon.Create(ctx)
     icon.mask:SetAllPoints()
     icon.mask:SetTexture(CIRCULAR_MASK_PATH, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
 
-    -- ARTWORK sublevel 7 puts the highlight above the icon texture but below the OVERLAY border.
     icon.highlight = icon:CreateTexture(nil, "ARTWORK", nil, 7)
     icon.highlight:SetAllPoints()
     icon.highlight:SetTexture("Interface\\Buttons\\WHITE8x8")
@@ -125,7 +122,6 @@ function Icon.Create(ctx)
     icon.cooldown:SetUseCircularEdge(true)
     icon.cooldown:SetDrawBling(false)
 
-    -- Dedicated mask so the cooldown swipe keeps a circular clip even if icon.mask is replaced.
     icon.cooldownMask = icon.cooldown:CreateMaskTexture()
     icon.cooldownMask:SetAllPoints(icon.cooldown)
     icon.cooldownMask:SetTexture(CIRCULAR_MASK_PATH, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
@@ -174,14 +170,14 @@ function Icon.Create(ctx)
     icon.border = icon:CreateTexture(nil, "OVERLAY")
     icon.border:SetPoint("CENTER")
 
-    -- Alpha only - SetScale is protected on secure buttons in combat. ToAlpha is set per play to the icon's fade-effect alpha so it lands exactly where a plain paint would.
+    -- Alpha only: SetScale is protected on secure buttons in combat.
     icon.appearAnim = icon:CreateAnimationGroup()
     icon.appearAnim:SetToFinalAlpha(true)
     icon.appearFade = icon.appearAnim:CreateAnimation("Alpha")
     icon.appearFade:SetFromAlpha(0)
     icon.appearFade:SetDuration(APPEAR_DURATION)
 
-    -- Right-click toggles favourite (insecure); the cast lives on type1 (left only), so right-click never casts. Gate on `down` so the up-edge doesn't double-toggle.
+    -- Right-click toggles favourite; the cast lives on type1, and the `down` gate stops the up-edge double-toggling.
     icon:SetScript("PreClick", function(self, button, down)
         if button == "RightButton" then
             if down then
@@ -194,7 +190,7 @@ function Icon.Create(ctx)
             return
         end
         if not down then return end
-        -- Random hearthstone re-roll before the left-click cast: skip under lockdown — SetAttribute is protected, keep last pick.
+        -- Random hearthstone re-roll before the cast: skip under lockdown, SetAttribute is protected.
         local data = self.portalData
         if data and data.type == "random_hearthstone" and data.availableHearthstones and not InCombatLockdown() then
             local available = data.availableHearthstones
@@ -213,7 +209,6 @@ function Icon.Create(ctx)
         end
     end)
 
-    -- Cast fires on the up-edge for these buttons; play the flourish there (once, left-click only).
     icon:SetScript("PostClick", function(self, button, down)
         if button ~= "LeftButton" or down then return end
         PlaySoundFile(CLICK_SOUND_PATH, "SFX")
@@ -221,7 +216,6 @@ function Icon.Create(ctx)
     end)
 
     icon:SetScript("OnEnter", function(self)
-        -- Slide carries icons outside the fixed dock zone; gate on the static (padded) summon zone, not the moving icon, or reveal fights conceal into a flicker.
         if not ctx.IsCursorOverDock() then return end
         if self.highlight then self.highlight:Show() end
         ctx.HoverEnter()
@@ -231,7 +225,6 @@ function Icon.Create(ctx)
     icon:SetScript("OnLeave", function(self)
         GameTooltip:Hide()
         if self.highlight then self.highlight:Hide() end
-        -- Mouse can exit the dock via an icon without dock:OnLeave firing, so release capture here (HoverExit re-checks the summon zone).
         ctx.HoverExit()
     end)
 
@@ -245,7 +238,6 @@ function Icon.PlayAppear(icon)
     icon.appearAnim:Play()
 end
 
--- paint carries the repaint-invariant reads (iconSize, fadeAmount, normalized maxVisible) resolved once per pass, so nothing here re-reads settings per icon.
 function Icon.Configure(ctx, icon, data, index, paint)
     local state = ctx.state
     local Layout = addon.PortalLayout
