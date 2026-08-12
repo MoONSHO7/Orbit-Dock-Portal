@@ -31,13 +31,13 @@ Load order (`Orbit_Portal.toc`) is data → pure helpers → runtime → root; n
 | `Settings/PortalCommands.lua` | `scan` command from Spotlight — wipes the M+ cache, refreshes |
 | `PortalDock.lua` | plugin root — registration, ctx, dock frame, RefreshDock, lifecycle |
 
-Orbit Core surface used: `Orbit:RegisterPlugin` / `PluginMixin` (`GetSetting`/`SetSetting`, standard + visibility events), `OrbitEngine.Config:Render`, `OrbitEngine.FramePersistence` (settings listener, `RestorePosition`), `OrbitEngine.FrameOrientation` (drag orientation), `OrbitEngine.Pixel`, `OrbitEngine.PositionUtils` / `OverrideUtils` for Canvas Mode text, `Orbit.EventBus`, `Orbit.L`.
+Orbit Core surface used: `Orbit:RegisterPlugin` / `PluginMixin` (`GetSetting`/`SetSetting`, standard + visibility events), `OrbitEngine.Config:Render`, `OrbitEngine.FramePersistence` (settings listener, `RestorePosition`), `OrbitEngine.FrameOrientation` (drag orientation), `OrbitEngine.Pixel`, `OrbitEngine.PositionUtils` / `OverrideUtils` for Canvas Mode text, `Orbit.CombatManager`, `Orbit.EventBus`, `Orbit.L`.
 
 Dock geometry follows Orbit's sizing contract: `IconSize` is a logical content dimension snapped at render time, while `Spacing` and the compact thickness pad are physical-pixel details resolved against the dock's effective scale.
 
 ## Gotchas
 - Dependency direction is inward only: `PortalDock` → sibling modules → `PortalLayout` / `PortalCanvas` / `PortalData`.
-- Secure button attributes must be cleared during Edit Mode; scanning is combat-safe by queuing through `pendingRefresh`. The dock is hidden in combat and the reveal tween snaps and stops under lockdown.
+- Secure button attributes must be cleared during Edit Mode; scanning is combat-safe by queuing through `pendingRefresh`. The dock is hidden in combat and the reveal tween snaps and stops under lockdown. Secure icon descendants also protect ancestor mouse mutation, so lifecycle alpha updates immediately while dock `EnableMouse` coalesces through `CombatManager` until regen.
 - The cast binds to `type1` (left mouse) only, leaving right-click free to toggle favourite (insecure `PreClick`, gated on `down` so the up-edge doesn't double-toggle) — right-click never casts.
 - Mouse-enabled icons swallow the wheel instead of passing it to the dock, so each icon forwards `OnMouseWheel` to the dock handler via `ctx.HandleWheel` — otherwise scrolling over a result (which covers the dock) wouldn't scroll/page.
 - Filter engage/clear fades the new icon set in (`state.animatePaint` one-shot → `Icon.PlayAppear`); it animates **alpha only** because `SetScale` on the secure buttons would taint in combat. Refines (query→query) and scroll/cooldown repaints snap, so fast typing doesn't strobe.

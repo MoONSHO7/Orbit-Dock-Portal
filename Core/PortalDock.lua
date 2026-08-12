@@ -62,6 +62,7 @@ local CLAMP_VISIBLE_MARGIN     = 30
 local DOCK_THICKNESS_PAD       = 2
 local COOLDOWN_REFRESH_INTERVAL = 15
 local REFRESH_DEBOUNCE          = 0.1
+local DOCK_MOUSE_UPDATE_CONTEXT = "OrbitPortalDockMouse"
 
 local ICON_TEXCOORD_MIN        = 0.08
 local ICON_TEXCOORD_MAX        = 0.92
@@ -627,6 +628,11 @@ function Plugin:OnDisable()
     end
 end
 
+local function ApplyDockMouseState()
+    if not dock then return end
+    dock:EnableMouse(not dock.orbitHiddenByAlpha)
+end
+
 function Plugin:UpdateVisibility()
     if not dock then return end
     local shouldHide = (C_PetBattles and C_PetBattles.IsInBattle())
@@ -634,7 +640,11 @@ function Plugin:UpdateVisibility()
         or (Orbit.VisibilityEngine and Orbit.VisibilityEngine:IsFrameMountedHidden(self.name, 1))
         or false
     Orbit.OOCFadeService:SetLifecycleHidden(dock, shouldHide)
-    dock:EnableMouse(not shouldHide)
+    if InCombatLockdown() then
+        Orbit.CombatManager:QueueUpdate(ApplyDockMouseState, DOCK_MOUSE_UPDATE_CONTEXT)
+        return
+    end
+    ApplyDockMouseState()
 end
 
 function Plugin:ApplySettings()
