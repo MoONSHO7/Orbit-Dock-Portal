@@ -11,15 +11,15 @@ local InCombatLockdown = InCombatLockdown
 
 -- [ CONSTANTS ] -------------------------------------------------------------------------------------------------------
 local SEARCH_BUFFER_TIMEOUT = 0.8
-local DISPLAY_HOLD          = 0.8
-local DISPLAY_FADE          = 0.35
-local DISPLAY_FONT_SIZE     = 20
-local DISPLAY_GAP           = 6
-local DISPLAY_LEVEL_OFFSET  = 10
-local DISPLAY_MATCH_COLOR   = { 1, 1, 1 }
+local DISPLAY_HOLD = 0.8
+local DISPLAY_FADE = 0.35
+local DISPLAY_FONT_SIZE = 20
+local DISPLAY_GAP = 6
+local DISPLAY_LEVEL_OFFSET = 10
+local DISPLAY_MATCH_COLOR = { 1, 1, 1 }
 local DISPLAY_NOMATCH_COLOR = { 1, 0.25, 0.25 }
-local SCORE_EXACT_SHORT     = 5
-local HOVER_POLL_INTERVAL   = 0.1
+local SCORE_EXACT_SHORT = 5
+local HOVER_POLL_INTERVAL = 0.1
 
 -- [ MODULE ] ----------------------------------------------------------------------------------------------------------
 local Navigation = {}
@@ -33,13 +33,19 @@ local searchFrame
 local searchDisplay
 local searchDisplayText
 local searchFadeAnim
+local keyboardSearchEnabled = true
 
 -- [ SEARCH FILTER ] ---------------------------------------------------------------------------------------------------
 local function ApplyFilter(items)
-    if not installedCtx then return end
+    if not installedCtx then
+        return
+    end
     local state = installedCtx.state
     if items and #items > 0 then
-        if not state.searchFilter then preFilterScroll = state.scrollOffset; state.animatePaint = true end
+        if not state.searchFilter then
+            preFilterScroll = state.scrollOffset
+            state.animatePaint = true
+        end
         state.searchFilter = items
         state.scrollOffset = 0
     elseif state.searchFilter then
@@ -49,7 +55,9 @@ local function ApplyFilter(items)
     else
         return
     end
-    if installedCtx.RepaintIcons then installedCtx.RepaintIcons() end
+    if installedCtx.RepaintIcons then
+        installedCtx.RepaintIcons()
+    end
 end
 
 -- [ SEARCH DISPLAY ] --------------------------------------------------------------------------------------------------
@@ -57,21 +65,31 @@ local function ClearBufferAndDisplay()
     searchBuffer = ""
     searchBufferExpiry = 0
     ApplyFilter(nil)
-    if not searchDisplay then return end
-    if searchFadeAnim and searchFadeAnim:IsPlaying() then searchFadeAnim:Stop() end
+    if not searchDisplay then
+        return
+    end
+    if searchFadeAnim and searchFadeAnim:IsPlaying() then
+        searchFadeAnim:Stop()
+    end
     searchDisplay:SetAlpha(1)
     searchDisplay:Hide()
 end
 
 local function ShowSearchBufferText(hasMatch)
-    if not searchDisplay then return end
+    if not searchDisplay then
+        return
+    end
     searchDisplayText:SetText(searchBuffer:upper())
     local c = hasMatch and DISPLAY_MATCH_COLOR or DISPLAY_NOMATCH_COLOR
     searchDisplayText:SetTextColor(c[1], c[2], c[3])
-    if searchFadeAnim then searchFadeAnim:Stop() end
+    if searchFadeAnim then
+        searchFadeAnim:Stop()
+    end
     searchDisplay:SetAlpha(1)
     searchDisplay:Show()
-    if searchFadeAnim then searchFadeAnim:Play() end
+    if searchFadeAnim then
+        searchFadeAnim:Play()
+    end
 end
 
 local function KeepSearchAlive()
@@ -85,18 +103,36 @@ end
 
 -- [ MATCHING ] --------------------------------------------------------------------------------------------------------
 local function ScoreMatch(data, needle)
-    if not data then return 0 end
+    if not data then
+        return 0
+    end
     local short = data.searchShort
-    local name  = data.searchName
-    local inst  = data.searchInst
-    local cat   = data.searchCategory
-    if short == needle then return SCORE_EXACT_SHORT end
-    if short and short:sub(1, #needle) == needle then return 4 end
-    if (name and name:sub(1, #needle) == needle) or (inst and inst:sub(1, #needle) == needle)
-        or (cat and cat:sub(1, #needle) == needle) then return 3 end
-    if short and short:find(needle, 1, true) then return 2 end
-    if (name and name:find(needle, 1, true)) or (inst and inst:find(needle, 1, true))
-        or (cat and cat:find(needle, 1, true)) then return 1 end
+    local name = data.searchName
+    local inst = data.searchInst
+    local cat = data.searchCategory
+    if short == needle then
+        return SCORE_EXACT_SHORT
+    end
+    if short and short:sub(1, #needle) == needle then
+        return 4
+    end
+    if
+        (name and name:sub(1, #needle) == needle)
+        or (inst and inst:sub(1, #needle) == needle)
+        or (cat and cat:sub(1, #needle) == needle)
+    then
+        return 3
+    end
+    if short and short:find(needle, 1, true) then
+        return 2
+    end
+    if
+        (name and name:find(needle, 1, true))
+        or (inst and inst:find(needle, 1, true))
+        or (cat and cat:find(needle, 1, true))
+    then
+        return 1
+    end
     return 0
 end
 
@@ -110,24 +146,31 @@ local function RankMatches(portalList, needle)
             end
         end
         table_sort(entries, function(a, b)
-            if a.score ~= b.score then return a.score > b.score end
+            if a.score ~= b.score then
+                return a.score > b.score
+            end
             return a.order < b.order
         end)
     end
     local items = {}
-    for k, e in ipairs(entries) do items[k] = e.item end
+    for k, e in ipairs(entries) do
+        items[k] = e.item
+    end
     return items
 end
 
 function Navigation.Install(ctx)
     installedCtx = ctx
+    keyboardSearchEnabled = ctx.plugin:GetSetting(1, "EnableKeyboardSearch")
     local dock = ctx.dock
     local state = ctx.state
     local Combat = addon.PortalCombat
     local NormalizeMaxVisible = addon.PortalLayout.NormalizeMaxVisible
 
     local function OnMouseWheel(_, delta)
-        if not Combat.CanInteract() then return end
+        if not Combat.CanInteract() then
+            return
+        end
         local filter = state.searchFilter
         if filter and #filter > 0 then
             KeepSearchAlive()
@@ -137,7 +180,9 @@ function Navigation.Install(ctx)
         end
         local portalList = state.portalList
         local totalIcons = #portalList
-        if totalIcons == 0 then return end
+        if totalIcons == 0 then
+            return
+        end
 
         if IsShiftKeyDown() then
             local maxVisible = NormalizeMaxVisible(ctx.plugin:GetSetting(1, "MaxVisible"), totalIcons)
@@ -184,13 +229,23 @@ function Navigation.Install(ctx)
     end
 
     local function OnSearchChar(_, text)
-        if not text or text == "" then return end
-        if not state.isMouseOver or state.isEditModeActive then return end
-        if GetCurrentKeyBoardFocus() then return end
-        if not Combat.CanInteract() then return end
+        if not text or text == "" then
+            return
+        end
+        if not state.isMouseOver or state.isEditModeActive then
+            return
+        end
+        if GetCurrentKeyBoardFocus() then
+            return
+        end
+        if not Combat.CanInteract() then
+            return
+        end
 
         local now = GetTime()
-        if now > searchBufferExpiry then searchBuffer = "" end
+        if now > searchBufferExpiry then
+            searchBuffer = ""
+        end
         searchBuffer = searchBuffer .. text:lower()
         searchBufferExpiry = now + SEARCH_BUFFER_TIMEOUT
 
@@ -213,7 +268,9 @@ function Navigation.Install(ctx)
     searchFrame:Hide()
 
     local function ApplyPropagation(self, key)
-        if InCombatLockdown() then return end
+        if InCombatLockdown() then
+            return
+        end
         if GetCurrentKeyBoardFocus() or not (key and #key == 1) then
             self:SetPropagateKeyboardInput(true)
         else
@@ -222,9 +279,17 @@ function Navigation.Install(ctx)
     end
 
     local function OnKeyDown(self, key)
-        if InCombatLockdown() then return end
-        if key == "TAB" and searchBuffer ~= "" and state.isMouseOver and not state.isEditModeActive
-           and not GetCurrentKeyBoardFocus() and Combat.CanInteract() then
+        if InCombatLockdown() then
+            return
+        end
+        if
+            key == "TAB"
+            and searchBuffer ~= ""
+            and state.isMouseOver
+            and not state.isEditModeActive
+            and not GetCurrentKeyBoardFocus()
+            and Combat.CanInteract()
+        then
             self:SetPropagateKeyboardInput(false)
             PageResults()
             return
@@ -233,16 +298,20 @@ function Navigation.Install(ctx)
     end
 
     searchFrame:SetScript("OnKeyDown", OnKeyDown)
-    searchFrame:SetScript("OnKeyUp",   ApplyPropagation)
+    searchFrame:SetScript("OnKeyUp", ApplyPropagation)
     searchFrame:SetScript("OnChar", OnSearchChar)
 
     -- An icon Hidden mid-hover never fires OnLeave, stranding this keyboard-capturing frame and eating every key.
     searchFrame:SetScript("OnUpdate", function(self, elapsed)
         self.pollElapsed = (self.pollElapsed or 0) + elapsed
-        if self.pollElapsed < HOVER_POLL_INTERVAL then return end
+        if self.pollElapsed < HOVER_POLL_INTERVAL then
+            return
+        end
         self.pollElapsed = 0
         if not (ctx.IsCursorOverDock and ctx.IsCursorOverDock()) then
-            if ctx.HoverExit then ctx.HoverExit() end
+            if ctx.HoverExit then
+                ctx.HoverExit()
+            end
             return
         end
         if searchBuffer ~= "" then
@@ -277,19 +346,38 @@ function Navigation.Install(ctx)
 end
 
 function Navigation.ShowSearch()
-    if searchFrame then searchFrame:Show() end
+    if searchFrame and keyboardSearchEnabled then
+        searchFrame:Show()
+    end
 end
 
 function Navigation.HideSearch()
-    if not searchFrame then return end
+    if not searchFrame then
+        return
+    end
     -- Release the key capture before hiding so a lingering frame (or the next show) never eats keyboard input.
-    if not InCombatLockdown() then searchFrame:SetPropagateKeyboardInput(true) end
+    if not InCombatLockdown() then
+        searchFrame:SetPropagateKeyboardInput(true)
+    end
     searchFrame:Hide()
 end
 
 function Navigation.RestorePropagationDefault()
     if searchFrame and not InCombatLockdown() then
         searchFrame:SetPropagateKeyboardInput(true)
+    end
+end
+
+function Navigation.ApplySettings()
+    if not installedCtx then
+        return
+    end
+    keyboardSearchEnabled = installedCtx.plugin:GetSetting(1, "EnableKeyboardSearch")
+    if not keyboardSearchEnabled then
+        Navigation.HideSearch()
+        ClearBufferAndDisplay()
+    elseif installedCtx.state.isMouseOver and not installedCtx.state.isEditModeActive then
+        Navigation.ShowSearch()
     end
 end
 

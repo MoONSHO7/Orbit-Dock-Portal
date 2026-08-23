@@ -1,4 +1,3 @@
-
 local _, addon = ...
 
 ---@type Orbit
@@ -22,6 +21,7 @@ local Plugin = Orbit:RegisterPlugin("Portal Dock", SYSTEM_ID, {
         Spacing = 5,
         MaxVisible = 9,
         HideLongCooldowns = true,
+        EnableKeyboardSearch = true,
         FadeEffect = 0,
         Compactness = 0,
         Animation = 0,
@@ -29,10 +29,10 @@ local Plugin = Orbit:RegisterPlugin("Portal Dock", SYSTEM_ID, {
         Anchor = false,
         Position = { point = "LEFT", x = 8, y = 0 },
         ComponentPositions = {
-            DungeonScore  = { anchorX = "CENTER", anchorY = "BOTTOM", offsetX = 0, offsetY = -2, justifyH = "CENTER" },
-            DungeonShort  = { anchorX = "CENTER", anchorY = "TOP",    offsetX = 0, offsetY = 2,  justifyH = "CENTER" },
-            FavouriteStar = { anchorX = "RIGHT",  anchorY = "TOP",    offsetX = 1, offsetY = 1,  justifyH = "RIGHT"  },
-            Timer         = { anchorX = "CENTER", anchorY = "CENTER", offsetX = 0, offsetY = 0,  justifyH = "CENTER" },
+            DungeonScore = { anchorX = "CENTER", anchorY = "BOTTOM", offsetX = 0, offsetY = -2, justifyH = "CENTER" },
+            DungeonShort = { anchorX = "CENTER", anchorY = "TOP", offsetX = 0, offsetY = 2, justifyH = "CENTER" },
+            FavouriteStar = { anchorX = "RIGHT", anchorY = "TOP", offsetX = 1, offsetY = 1, justifyH = "RIGHT" },
+            Timer = { anchorX = "CENTER", anchorY = "CENTER", offsetX = 0, offsetY = 0, justifyH = "CENTER" },
         },
         DisabledComponents = { "DungeonShort" },
     },
@@ -46,33 +46,33 @@ OrbitEngine.CanvasMode.ComponentCatalog:RegisterDeclared("FavouriteStar")
 OrbitEngine.CanvasMode.ComponentCatalog:RegisterDeclared("Timer")
 
 -- [ CONSTANTS ] -------------------------------------------------------------------------------------------------------
-local RESTING_ALPHA            = 1.0
+local RESTING_ALPHA = 1.0
 
-local INITIAL_DOCK_WIDTH       = 44
-local INITIAL_DOCK_HEIGHT      = 200
-local INITIAL_DOCK_X_OFFSET    = 10
-local HOVER_HIT_INSET          = 10
-local DOCK_FRAME_LEVEL         = 100
-local DOCK_FRAME_STRATA        = "MEDIUM"
-local INITIAL_SCAN_DELAY       = 2
+local INITIAL_DOCK_WIDTH = 44
+local INITIAL_DOCK_HEIGHT = 200
+local INITIAL_DOCK_X_OFFSET = 10
+local HOVER_HIT_INSET = 10
+local DOCK_FRAME_LEVEL = 100
+local DOCK_FRAME_STRATA = "MEDIUM"
+local INITIAL_SCAN_DELAY = 2
 local EDIT_MODE_HIGHLIGHT_OUTSET = 5
 
-local LONG_COOLDOWN_THRESHOLD  = 1800
-local CLAMP_VISIBLE_MARGIN     = 30
-local DOCK_THICKNESS_PAD       = 2
+local LONG_COOLDOWN_THRESHOLD = 1800
+local CLAMP_VISIBLE_MARGIN = 30
+local DOCK_THICKNESS_PAD = 2
 local COOLDOWN_REFRESH_INTERVAL = 15
-local REFRESH_DEBOUNCE          = 0.1
+local REFRESH_DEBOUNCE = 0.1
 local DOCK_MOUSE_UPDATE_CONTEXT = "OrbitPortalDockMouse"
 
-local ICON_TEXCOORD_MIN        = 0.08
-local ICON_TEXCOORD_MAX        = 0.92
-local ICON_BORDER_SCALE        = 1.1
-local CIRCULAR_MASK_PATH       = "Interface\\CHARACTERFRAME\\TempPortraitAlphaMask"
-local QUESTIONMARK_ICON        = "Interface\\Icons\\INV_Misc_QuestionMark"
-local STAR_SIZE                = 12
-local STAR_ATLAS               = "transmog-icon-favorite"
-local BORDER_ATLAS_SEASONAL    = "talents-node-choiceflyout-circle-red"
-local BORDER_ATLAS_DEFAULT     = "talents-node-choiceflyout-circle-gray"
+local ICON_TEXCOORD_MIN = 0.08
+local ICON_TEXCOORD_MAX = 0.92
+local ICON_BORDER_SCALE = 1.1
+local CIRCULAR_MASK_PATH = "Interface\\CHARACTERFRAME\\TempPortraitAlphaMask"
+local QUESTIONMARK_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
+local STAR_SIZE = 12
+local STAR_ATLAS = "transmog-icon-favorite"
+local BORDER_ATLAS_SEASONAL = "talents-node-choiceflyout-circle-red"
+local BORDER_ATLAS_DEFAULT = "talents-node-choiceflyout-circle-gray"
 
 -- [ STATE ] -----------------------------------------------------------------------------------------------------------
 local dock
@@ -93,7 +93,9 @@ local ctx = { plugin = Plugin, state = state }
 addon.PortalDockContext = ctx
 
 local CAT_PRIORITY = {}
-for i, cat in ipairs(addon.PortalData.CategoryOrder) do CAT_PRIORITY[cat] = i end
+for i, cat in ipairs(addon.PortalData.CategoryOrder) do
+    CAT_PRIORITY[cat] = i
+end
 
 -- [ ORIENTATION ] -----------------------------------------------------------------------------------------------------
 local function IsHorizontal()
@@ -123,7 +125,9 @@ end
 -- [ REFRESH ORCHESTRATION ] -------------------------------------------------------------------------------------------
 local function RepaintIcons()
     local Combat = addon.PortalCombat
-    if not dock or not Combat.CanInteract() then return end
+    if not dock or not Combat.CanInteract() then
+        return
+    end
 
     local Layout = addon.PortalLayout
     local IconModule = addon.PortalIcon
@@ -154,12 +158,12 @@ local function RepaintIcons()
     local iconPoolIndex = 0
 
     local paint = {
-        iconSize   = iconSize,
+        iconSize = iconSize,
         maxVisible = maxVisible,
         fadeAmount = Layout.ResolveFadeAmount(Plugin:GetSetting(1, "FadeEffect")),
-        fontPath   = Canvas.GetGlobalFontPath(),
-        positions  = Plugin:GetSetting(1, "ComponentPositions") or {},
-        disabled   = Canvas.BuildDisabledSet(Plugin),
+        fontPath = Canvas.GetGlobalFontPath(),
+        positions = Plugin:GetSetting(1, "ComponentPositions") or {},
+        disabled = Canvas.BuildDisabledSet(Plugin),
     }
 
     local animate = state.animatePaint
@@ -179,7 +183,9 @@ local function RepaintIcons()
         local data = renderList[actualIndex]
 
         if data then
-            if not iconPool then iconPool = {} end
+            if not iconPool then
+                iconPool = {}
+            end
             local icon = iconPool[iconPoolIndex]
             if not icon then
                 icon = IconModule.Create(ctx)
@@ -189,11 +195,14 @@ local function RepaintIcons()
             IconModule.Configure(ctx, icon, data, displayIndex, paint)
             Canvas.ApplyIconComponents(icon, data, state.mythicPlusCache, data.displayGroup == "FAVORITE", paint)
 
-            local axialPos, arcOffset = Layout.CalculatePosition(displayIndex, maxVisible, iconSize, spacing, compactness)
+            local axialPos, arcOffset =
+                Layout.CalculatePosition(displayIndex, maxVisible, iconSize, spacing, compactness)
             icon.stableCenterPos = axialPos
             PositionIconForOrientation(icon, dock.content, arcOffset, axialPos, iconSize)
 
-            if animate then IconModule.PlayAppear(icon) end
+            if animate then
+                IconModule.PlayAppear(icon)
+            end
             table.insert(state.visibleIcons, icon)
         end
     end
@@ -220,7 +229,9 @@ end
 
 local function RefreshDock()
     local Combat = addon.PortalCombat
-    if not dock or not Combat.CanInteract() then return end
+    if not dock or not Combat.CanInteract() then
+        return
+    end
 
     state.searchFilter = nil
 
@@ -247,11 +258,15 @@ local function RefreshDock()
     end
 
     local orderIndex = {}
-    for i, item in ipairs(state.portalList) do orderIndex[item] = i end
+    for i, item in ipairs(state.portalList) do
+        orderIndex[item] = i
+    end
     table.sort(state.portalList, function(a, b)
         local pa = CAT_PRIORITY[a.displayGroup] or 999
         local pb = CAT_PRIORITY[b.displayGroup] or 999
-        if pa ~= pb then return pa < pb end
+        if pa ~= pb then
+            return pa < pb
+        end
         return orderIndex[a] < orderIndex[b]
     end)
 
@@ -259,10 +274,12 @@ local function RefreshDock()
     state.firstIndexOfCategory = {}
     for i, item in ipairs(state.portalList) do
         local cat = item.displayGroup
-        if state.firstIndexOfCategory[cat] == nil then state.firstIndexOfCategory[cat] = i end
+        if state.firstIndexOfCategory[cat] == nil then
+            state.firstIndexOfCategory[cat] = i
+        end
         item.searchShort = item.short and item.short:lower() or nil
-        item.searchName  = item.name and item.name:lower() or nil
-        item.searchInst  = item.instanceName and item.instanceName:lower() or nil
+        item.searchName = item.name and item.name:lower() or nil
+        item.searchInst = item.instanceName and item.instanceName:lower() or nil
         local catName = categoryNames[item.category]
         item.searchCategory = catName and catName:lower() or nil
     end
@@ -323,7 +340,9 @@ local function CreateDock()
     ctx.HoverEnter = HoverEnter
 
     local function HoverExit()
-        if IsCursorOverDock() then return end
+        if IsCursorOverDock() then
+            return
+        end
         state.isMouseOver = false
         addon.PortalNavigation.HideSearch()
         addon.PortalNavigation.ClearSearchBuffer()
@@ -426,9 +445,30 @@ local function CreateDock()
         local fontPath = addon.PortalCanvas.GetGlobalFontPath()
 
         OrbitEngine.IconCanvasPreview:AttachTextComponents(preview, {
-            { key = "Timer",        preview = "5",   anchorX = "CENTER", anchorY = "CENTER", offsetX = 0, offsetY = 0  },
-            { key = "DungeonScore", preview = "285", anchorX = "CENTER", anchorY = "BOTTOM", offsetX = 0, offsetY = -2 },
-            { key = "DungeonShort", preview = "AA",  anchorX = "CENTER", anchorY = "TOP",    offsetX = 0, offsetY = 2  },
+            {
+                key = "Timer",
+                preview = "5",
+                anchorX = "CENTER",
+                anchorY = "CENTER",
+                offsetX = 0,
+                offsetY = 0,
+            },
+            {
+                key = "DungeonScore",
+                preview = "285",
+                anchorX = "CENTER",
+                anchorY = "BOTTOM",
+                offsetX = 0,
+                offsetY = -2,
+            },
+            {
+                key = "DungeonShort",
+                preview = "AA",
+                anchorX = "CENTER",
+                anchorY = "TOP",
+                offsetX = 0,
+                offsetY = 2,
+            },
         }, savedPositions, fontPath)
 
         local CreateDraggableComponent = OrbitEngine.CanvasMode and OrbitEngine.CanvasMode.CreateDraggableComponent
@@ -492,7 +532,9 @@ function Plugin:OnLoad()
     OrbitEngine.FramePersistence:AttachSettingsListener(dock, self, 1)
 
     OrbitEngine.FrameOrientation:RegisterCallback(dock, function(orientation)
-        if currentOrientation == orientation then return end
+        if currentOrientation == orientation then
+            return
+        end
 
         local cursorX, cursorY = GetCursorPosition()
         local scale = dock:GetEffectiveScale()
@@ -511,7 +553,8 @@ function Plugin:OnLoad()
             local newLeft = newCenterX - (dock:GetWidth() / 2)
             local newBottom = newCenterY - (dock:GetHeight() / 2)
             local dw, dh = dock:GetSize()
-            newLeft, newBottom = OrbitEngine.Pixel:SnapPosition(newLeft, newBottom, "BOTTOMLEFT", dw, dh, dock:GetEffectiveScale())
+            newLeft, newBottom =
+                OrbitEngine.Pixel:SnapPosition(newLeft, newBottom, "BOTTOMLEFT", dw, dh, dock:GetEffectiveScale())
             dock:ClearAllPoints()
             dock:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", newLeft, newBottom)
         end
@@ -600,15 +643,24 @@ function Plugin:OnLoad()
 
     local hadActiveCooldowns = false
     self._cooldownTicker = C_Timer.NewTicker(COOLDOWN_REFRESH_INTERVAL, function()
-        if not dock or not addon.PortalCombat.CanInteract() then return end
+        if not dock or not addon.PortalCombat.CanInteract() then
+            return
+        end
         local list = state.portalList
-        if not list or #list == 0 then return end
+        if not list or #list == 0 then
+            return
+        end
         addon.PortalScanner:RefreshCooldowns(list)
         local anyActive = false
         for _, item in ipairs(list) do
-            if item.cooldown and item.cooldown > 0 then anyActive = true; break end
+            if item.cooldown and item.cooldown > 0 then
+                anyActive = true
+                break
+            end
         end
-        if anyActive or hadActiveCooldowns then RepaintIcons() end
+        if anyActive or hadActiveCooldowns then
+            RepaintIcons()
+        end
         hadActiveCooldowns = anyActive
     end)
 end
@@ -629,12 +681,16 @@ function Plugin:OnDisable()
 end
 
 local function ApplyDockMouseState()
-    if not dock then return end
+    if not dock then
+        return
+    end
     dock:EnableMouse(not dock.orbitHiddenByAlpha)
 end
 
 function Plugin:UpdateVisibility()
-    if not dock then return end
+    if not dock then
+        return
+    end
     local shouldHide = (C_PetBattles and C_PetBattles.IsInBattle())
         or (UnitHasVehicleUI and UnitHasVehicleUI("player"))
         or (Orbit.VisibilityEngine and Orbit.VisibilityEngine:IsFrameMountedHidden(self.name, 1))
@@ -648,7 +704,10 @@ function Plugin:UpdateVisibility()
 end
 
 function Plugin:ApplySettings()
-    if not dock then return end
+    if not dock then
+        return
+    end
+    addon.PortalNavigation.ApplySettings()
     RequestRefresh()
     addon.PortalReveal.Apply(ctx)
 end
