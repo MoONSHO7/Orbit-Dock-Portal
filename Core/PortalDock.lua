@@ -686,15 +686,7 @@ local function ApplyDockMouseState()
     dock:EnableMouse(not dock.orbitHiddenByAlpha)
 end
 
--- CombatManager owns and freezes handles, so register inside its execution context across the sub-addon boundary.
-local dockMouseStateReconciler = securecallfunction(
-    Orbit.CombatManager.RegisterReconciler,
-    Orbit.CombatManager,
-    "DockMouseState",
-    Plugin,
-    ApplyDockMouseState
-)
-assert(dockMouseStateReconciler)
+local dockMouseStateReconciler = Orbit.CombatManager:RegisterReconciler("DockMouseState", Plugin, ApplyDockMouseState)
 
 function Plugin:UpdateVisibility()
     if not dock then
