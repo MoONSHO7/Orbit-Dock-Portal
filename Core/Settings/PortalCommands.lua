@@ -9,10 +9,12 @@ local Commands = {}
 addon.PortalCommands = Commands
 
 function Commands.Handle(ctx, cmd)
-    if cmd ~= "scan" then return end
-    wipe(ctx.state.mythicPlusCache)
-    if addon.PortalCombat.CanInteract() then
-        ctx.RefreshDock()
-    end
-    Orbit:Print(L.CMD_PORTAL_SCAN_DONE)
+	if cmd ~= "scan" then
+		return
+	end
+	wipe(ctx.state.mythicPlusCache)
+	if addon.PortalCombat.CanInteract() then
+		ctx.RefreshDock()
+	end
+	Orbit.Messages:Info(L.CMD_PORTAL_SCAN_DONE)
 end
