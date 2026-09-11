@@ -1,12 +1,13 @@
 ## Interface: 120100
-## Title: Dock: Portal
+## Title: Orbit: Portal
 ## Notes: A Scrollable bar for your characters portals.
 ## Author: MoONSHO7 / M7
 ## Version: @project-version@
-## Dependencies: Orbit
+## OptionalDeps: Orbit
+## SavedVariables: OrbitPortalDB
 ## IconTexture: Interface\AddOns\Orbit_Portal\Orbit.png
-## Group: Orbit
-## Category: Orbit UI
+## Group: Orbit_Portal
+## Category: |cffA78BFAOrbit Suite|r
 
 ## X-Curse-Project-ID: 1439533
 ## X-Part-Of: Orbit
@@ -15,6 +16,14 @@
 
 
 # Data
+Libs\LibOrbitUI-1.0\LibOrbitUI-1.0.xml
+Localization\Generated.lua
+Localization\Portal.lua
+Localization\Messages.lua
+Core\Settings\PortalDefaults.lua
+Core\Settings\PortalStore.lua
+Core\PortalServices.lua
+Core\Integrations\Orbit.lua
 Core\PortalData.lua
 
 # Pure helpers (no Portal deps)
@@ -41,4 +50,6 @@ Core\Settings\PortalSchema.lua
 Core\Settings\PortalCommands.lua
 
 # Plugin root — depends on all of the above
-Core\PortalDock.lua
+Core\Integrations\OrbitCanvas.lua
+Core\Portal.lua
+Core\PortalBoot.lua

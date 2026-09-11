@@ -1,2 +1,5 @@
 .env
 .vscode/
+
+# Local link to the standalone workspace library project.
+/Libs/LibOrbitUI-1.0

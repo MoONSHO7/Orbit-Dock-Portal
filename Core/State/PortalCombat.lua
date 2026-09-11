@@ -1,4 +1,3 @@
-
 local _, addon = ...
 
 -- [ MODULE ] ----------------------------------------------------------------------------------------------------------
@@ -6,37 +5,39 @@ local Combat = {}
 addon.PortalCombat = Combat
 
 function Combat.CanInteract()
-    if InCombatLockdown() then return false end
-    if C_InstanceEncounter.IsEncounterInProgress() then return false end
+    if InCombatLockdown() then
+        return false
+    end
+    if C_InstanceEncounter.IsEncounterInProgress() then
+        return false
+    end
     return true
 end
 
 function Combat.UpdateState(ctx)
-    local dock = ctx.dock
-    if not dock then return end
+    local frame = ctx.frame
+    if not frame then
+        return
+    end
 
     local state = ctx.state
     local inCombatOrEncounter = InCombatLockdown() or C_InstanceEncounter.IsEncounterInProgress()
 
     if inCombatOrEncounter then
-        -- REGEN_DISABLED fires just before lockdown; only Hide() while the secure call is still legal.
+        -- The frame's secure visibility driver owns combat hiding; encounter-only suppression remains legal here.
         if not InCombatLockdown() then
-            dock:Hide()
+            frame:Hide()
         end
         state.isEditModeActive = false
         state.isMouseOver = false
         addon.PortalNavigation.HideSearch()
         addon.PortalNavigation.ClearSearchBuffer()
     else
-        dock:Show()
         ctx.plugin:UpdateVisibility()
         addon.PortalNavigation.RestorePropagationDefault()
-        if ctx.IsCursorOverDock() then
+        if ctx.IsCursorOverFrame() then
             state.isMouseOver = true
             addon.PortalNavigation.ShowSearch()
-        end
-        if EditModeManagerFrame and EditModeManagerFrame:IsShown() then
-            state.isEditModeActive = true
         end
     end
 end

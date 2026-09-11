@@ -2,27 +2,31 @@ local _, addon = ...
 
 -- [ CONSTANTS ] -------------------------------------------------------------------------------------------------------
 local FADE_SLIDER_MAX = 100
-local FADE_DEFAULT    = 20
+local FADE_DEFAULT = 20
 
-local math_abs   = math.abs
-local math_min   = math.min
-local math_max   = math.max
-local math_sin   = math.sin
-local math_cos   = math.cos
-local math_pi    = math.pi
+local math_abs = math.abs
+local math_min = math.min
+local math_max = math.max
+local math_sin = math.sin
+local math_cos = math.cos
+local math_pi = math.pi
 
 local Layout = {}
 addon.PortalLayout = Layout
 
 -- [ HELPERS ] ---------------------------------------------------------------------------------------------------------
 function Layout.NormalizeMaxVisible(maxVisible, totalItems)
-    if maxVisible % 2 == 0 then maxVisible = maxVisible - 1 end
+    if maxVisible % 2 == 0 then
+        maxVisible = maxVisible - 1
+    end
     return math_max(3, math_min(maxVisible, totalItems or maxVisible))
 end
 
 -- Min/max of sin(theta) over [-halfMax, halfMax]: when halfMax > pi/2 the peak at ±pi/2 hits ±1.
 local function SinRange(halfMax)
-    if halfMax > math_pi / 2 then return -1, 1 end
+    if halfMax > math_pi / 2 then
+        return -1, 1
+    end
     local s = math_sin(halfMax)
     return -s, s
 end
@@ -46,7 +50,9 @@ function Layout.CalculatePosition(displayIndex, maxVisible, iconSize, spacing, c
 end
 
 function Layout.CalculatePerpExtent(maxVisible, iconSize, spacing, compactness)
-    if compactness <= 0.001 or maxVisible < 2 then return 0 end
+    if compactness <= 0.001 or maxVisible < 2 then
+        return 0
+    end
     local totalLength = (maxVisible - 1) * (iconSize + spacing)
     local thetaMax = compactness * 2 * math_pi * (maxVisible - 1) / maxVisible
     local radius = totalLength / thetaMax
@@ -66,13 +72,19 @@ function Layout.CalculateAxialExtent(maxVisible, iconSize, spacing, compactness)
 end
 
 function Layout.ResolveFadeAmount(fadeAmount)
-    if fadeAmount == true then return FADE_DEFAULT end
-    if not fadeAmount then return 0 end
+    if fadeAmount == true then
+        return FADE_DEFAULT
+    end
+    if not fadeAmount then
+        return 0
+    end
     return fadeAmount
 end
 
 function Layout.FadeAlphaForIndex(iconIndex, maxVisible, fadeAmount)
-    if not fadeAmount or fadeAmount <= 0 then return 1 end
+    if not fadeAmount or fadeAmount <= 0 then
+        return 1
+    end
     local visualCenterIndex = (maxVisible + 1) / 2
     local distFromVisualCenter = math_abs((iconIndex + 1) - visualCenterIndex)
     return math_max(0, 1 - distFromVisualCenter * (fadeAmount / FADE_SLIDER_MAX))

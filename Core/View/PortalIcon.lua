@@ -1,6 +1,8 @@
-
 local _, addon = ...
-local Orbit = Orbit
+local Services = addon.PortalServices
+local GameTooltip = Services.tooltip
+local ICON_OVERLAY_LEVEL = 7
+local ACTION_ATTRIBUTES = { "type1", "spell", "toy", "item", "house-neighborhood-guid", "house-guid", "house-plot-id" }
 
 local math_random = math.random
 local pairs = pairs
@@ -8,41 +10,41 @@ local InCombatLockdown = InCombatLockdown
 local GetTime = GetTime
 
 -- [ CONSTANTS ] -------------------------------------------------------------------------------------------------------
-local INITIAL_ICON_SIZE       = 36
-local MISSING_ICON_FILE_ID    = 134400
-local GCD_THRESHOLD           = 2
-local APPEAR_DURATION         = 0.25
+local INITIAL_ICON_SIZE = 36
+local MISSING_ICON_FILE_ID = 134400
+local GCD_THRESHOLD = 2
+local APPEAR_DURATION = 0.25
 
-local ICON_TEXCOORD_MIN       = 0.08
-local ICON_TEXCOORD_MAX       = 0.92
-local ICON_BORDER_SCALE       = 1.1
+local ICON_TEXCOORD_MIN = 0.08
+local ICON_TEXCOORD_MAX = 0.92
+local ICON_BORDER_SCALE = 1.1
 
-local CIRCULAR_MASK_PATH      = "Interface\\CHARACTERFRAME\\TempPortraitAlphaMask"
+local CIRCULAR_MASK_PATH = "Interface\\CHARACTERFRAME\\TempPortraitAlphaMask"
 
-local STAR_SIZE               = 12
-local STAR_SHADOW_SIZE        = 22
-local STAR_SHADOW_ALPHA       = 0.95
-local STAR_ATLAS              = "transmog-icon-favorite"
-local STAR_SHADOW_ATLAS       = "PetJournal-BattleSlot-Shadow"
+local STAR_SIZE = 12
+local STAR_SHADOW_SIZE = 22
+local STAR_SHADOW_ALPHA = 0.95
+local STAR_ATLAS = "transmog-icon-favorite"
+local STAR_SHADOW_ATLAS = "PetJournal-BattleSlot-Shadow"
 
-local BORDER_ATLAS_FAVOURITE  = "talents-node-choiceflyout-circle-yellow"
-local BORDER_ATLAS_SEASONAL   = "talents-node-choiceflyout-circle-red"
-local BORDER_ATLAS_DEFAULT    = "talents-node-choiceflyout-circle-gray"
+local BORDER_ATLAS_FAVOURITE = "talents-node-choiceflyout-circle-yellow"
+local BORDER_ATLAS_SEASONAL = "talents-node-choiceflyout-circle-red"
+local BORDER_ATLAS_DEFAULT = "talents-node-choiceflyout-circle-gray"
 
-local SHEEN_ATLAS             = "talents-sheen-node"
-local SHEEN_WIDTH_SCALE       = 1.0
-local SHEEN_SWEEP_DURATION    = 0.5
-local SHEEN_FADEIN_DURATION   = 0.15
-local SHEEN_FADEOUT_DURATION  = 0.20
-local SHEEN_FADEOUT_START     = 0.30
-local SHEEN_PEAK_ALPHA        = 0.85
+local SHEEN_ATLAS = "talents-sheen-node"
+local SHEEN_WIDTH_SCALE = 1.0
+local SHEEN_SWEEP_DURATION = 0.5
+local SHEEN_FADEIN_DURATION = 0.15
+local SHEEN_FADEOUT_DURATION = 0.20
+local SHEEN_FADEOUT_START = 0.30
+local SHEEN_PEAK_ALPHA = 0.85
 
-local HIGHLIGHT_COLOR_R       = 1.0
-local HIGHLIGHT_COLOR_G       = 0.95
-local HIGHLIGHT_COLOR_B       = 0.70
-local HIGHLIGHT_COLOR_A       = 0.35
+local HIGHLIGHT_COLOR_R = 1.0
+local HIGHLIGHT_COLOR_G = 0.95
+local HIGHLIGHT_COLOR_B = 0.70
+local HIGHLIGHT_COLOR_A = 0.35
 
-local CLICK_SOUND_PATH        = "Interface\\AddOns\\Orbit_Portal\\Audio\\switch-sound.ogg"
+local CLICK_SOUND_PATH = "Interface\\AddOns\\Orbit_Portal\\Audio\\switch-sound.ogg"
 
 -- [ MODULE ] ----------------------------------------------------------------------------------------------------------
 local Icon = {}
@@ -50,10 +52,12 @@ addon.PortalIcon = Icon
 
 -- MaskTexture extends Texture but rejects AddMaskTexture with an error; per-region flag dedupes adds.
 local function ApplyCircularMaskToCooldown(cooldown, mask)
-    for _, region in pairs({cooldown:GetRegions()}) do
-        if region:IsObjectType("Texture")
-           and not region:IsObjectType("MaskTexture")
-           and not region._orbitPortalMasked then
+    for _, region in pairs({ cooldown:GetRegions() }) do
+        if
+            region:IsObjectType("Texture")
+            and not region:IsObjectType("MaskTexture")
+            and not region._orbitPortalMasked
+        then
             region:AddMaskTexture(mask)
             region._orbitPortalMasked = true
         end
@@ -67,11 +71,13 @@ function Icon.Create(ctx)
     local icon = CreateFrame("Button", nil, ctx.content, "SecureActionButtonTemplate")
     icon:RegisterForClicks("AnyUp", "AnyDown")
     icon:SetSize(INITIAL_ICON_SIZE, INITIAL_ICON_SIZE)
-    Orbit.Engine.Pixel:Enforce(icon)
+    Services.pixel:Enforce(icon)
 
     icon:EnableMouseWheel(true)
     icon:SetScript("OnMouseWheel", function(self, delta)
-        if ctx.HandleWheel then ctx.HandleWheel(self, delta) end
+        if ctx.HandleWheel then
+            ctx.HandleWheel(self, delta)
+        end
     end)
 
     icon.mask = icon:CreateMaskTexture()
@@ -161,7 +167,7 @@ function Icon.Create(ctx)
 
     icon.DungeonScoreOverlay = CreateFrame("Frame", nil, icon)
     icon.DungeonScoreOverlay:SetAllPoints()
-    icon.DungeonScoreOverlay:SetFrameLevel(icon:GetFrameLevel() + (Orbit.Constants.Levels and Orbit.Constants.Levels.IconOverlay or 5))
+    icon.DungeonScoreOverlay:SetFrameLevel(icon:GetFrameLevel() + ICON_OVERLAY_LEVEL)
     icon.DungeonScore = icon.DungeonScoreOverlay:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     icon.DungeonScore:Hide()
     icon.DungeonShort = icon.DungeonScoreOverlay:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
@@ -189,7 +195,9 @@ function Icon.Create(ctx)
             end
             return
         end
-        if not down then return end
+        if not down then
+            return
+        end
         -- Random hearthstone re-roll before the cast: skip under lockdown, SetAttribute is protected.
         local data = self.portalData
         if data and data.type == "random_hearthstone" and data.availableHearthstones and not InCombatLockdown() then
@@ -210,21 +218,34 @@ function Icon.Create(ctx)
     end)
 
     icon:SetScript("PostClick", function(self, button, down)
-        if button ~= "LeftButton" or down then return end
+        if button ~= "LeftButton" or down then
+            return
+        end
         PlaySoundFile(CLICK_SOUND_PATH, "SFX")
-        if self.sheenAnim then self.sheenAnim:Stop(); self.sheenAnim:Play() end
+        if self.sheenAnim then
+            self.sheenAnim:Stop()
+            self.sheenAnim:Play()
+        end
     end)
 
     icon:SetScript("OnEnter", function(self)
-        if not ctx.IsCursorOverDock() then return end
-        if self.highlight then self.highlight:Show() end
+        if not ctx.IsCursorOverFrame() then
+            return
+        end
+        if self.highlight then
+            self.highlight:Show()
+        end
         ctx.HoverEnter()
-        if self.portalData then Tooltip.Show(ctx, self, self.portalData) end
+        if self.portalData then
+            Tooltip.Show(ctx, self, self.portalData)
+        end
     end)
 
     icon:SetScript("OnLeave", function(self)
         GameTooltip:Hide()
-        if self.highlight then self.highlight:Hide() end
+        if self.highlight then
+            self.highlight:Hide()
+        end
         ctx.HoverExit()
     end)
 
@@ -232,7 +253,9 @@ function Icon.Create(ctx)
 end
 
 function Icon.PlayAppear(icon)
-    if not icon.appearAnim then return end
+    if not icon.appearAnim then
+        return
+    end
     icon.appearFade:SetToAlpha(icon.currentAlpha or 1)
     icon.appearAnim:Stop()
     icon.appearAnim:Play()
@@ -250,7 +273,7 @@ function Icon.Configure(ctx, icon, data, index, paint)
     icon:SetSize(iconSize, iconSize)
 
     local iconScale = icon:GetEffectiveScale()
-    local borderSize = Orbit.Engine.Pixel:Snap(iconSize * ICON_BORDER_SCALE, iconScale)
+    local borderSize = Services.pixel:Snap(iconSize * ICON_BORDER_SCALE, iconScale)
 
     local borderAtlas
     if data.displayGroup == "FAVORITE" then
@@ -264,12 +287,12 @@ function Icon.Configure(ctx, icon, data, index, paint)
     icon.border:SetSize(borderSize, borderSize)
 
     if icon.sheen then
-        local sheenW = Orbit.Engine.Pixel:Snap(iconSize * SHEEN_WIDTH_SCALE, iconScale)
+        local sheenW = Services.pixel:Snap(iconSize * SHEEN_WIDTH_SCALE, iconScale)
         icon.sheen:SetSize(sheenW, iconSize)
         icon.sheen:ClearAllPoints()
         icon.sheen:SetPoint("RIGHT", icon, "LEFT", 0, 0)
         if icon.sheenTranslate then
-            icon.sheenTranslate:SetOffset(Orbit.Engine.Pixel:Snap(iconSize + sheenW, iconScale), 0)
+            icon.sheenTranslate:SetOffset(Services.pixel:Snap(iconSize + sheenW, iconScale), 0)
         end
     end
 
@@ -281,11 +304,10 @@ function Icon.Configure(ctx, icon, data, index, paint)
         icon.texture:SetTexture(MISSING_ICON_FILE_ID)
     end
 
+    for _, attribute in ipairs(ACTION_ATTRIBUTES) do
+        icon:SetAttribute(attribute, nil)
+    end
     if state.isEditModeActive then
-        icon:SetAttribute("type1", nil)
-        icon:SetAttribute("spell", nil)
-        icon:SetAttribute("toy", nil)
-        icon:SetAttribute("item", nil)
         icon:EnableMouse(false)
     else
         icon:EnableMouse(true)
@@ -310,11 +332,12 @@ function Icon.Configure(ctx, icon, data, index, paint)
                 end
             end
         elseif data.type == "housing" then
-            icon:SetAttribute("type1", "teleporthome")
-            if data.houseInfo then
-                icon:SetAttribute("house-neighborhood-guid", data.houseInfo.neighborhoodGUID)
-                icon:SetAttribute("house-guid", data.houseInfo.houseGUID)
-                icon:SetAttribute("house-plot-id", data.houseInfo.plotID)
+            local house = data.houseInfo
+            if house and house.neighborhoodGUID and house.houseGUID and house.plotID then
+                icon:SetAttribute("type1", "teleporthome")
+                icon:SetAttribute("house-neighborhood-guid", house.neighborhoodGUID)
+                icon:SetAttribute("house-guid", house.houseGUID)
+                icon:SetAttribute("house-plot-id", house.plotID)
             end
         end
     end

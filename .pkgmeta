@@ -1,9 +1,17 @@
 package-as: Orbit_Portal
 
+externals:
+  # LibOrbitUI release 1.2 provides API 1.5; pin its immutable monorepo commit.
+  Libs/LibOrbitUI-1.0:
+    url: https://github.com/MoONSHO7/Orbit-Libs
+    commit: d14b9a5ba3ebb89f25f7b87685754f5ab2c2b290
+    path: LibOrbitUI/LibOrbitUI-1.0
+
 ignore:
   - .git
   - .github
   - .vscode
+  - .scripts
   - "**/*.md"
   - .stylua.toml
   - .styluaignore

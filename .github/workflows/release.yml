@@ -10,7 +10,15 @@ env:
   GITHUB_OAUTH: ${{ secrets.GITHUB_TOKEN }}
 
 jobs:
+  validate:
+    uses: ./.github/workflows/validate.yml
+    secrets:
+      ORBIT_PAT: ${{ secrets.ORBIT_PAT }}
+    permissions:
+      contents: read
+
   release:
+    needs: validate
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -19,6 +27,18 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
+
+      - name: Authenticate private library access
+        env:
+          GH_TOKEN: ${{ secrets.ORBIT_PAT }}
+        run: |
+          test -n "$GH_TOKEN" || { echo "ORBIT_PAT must grant read access to LibOrbitUI." >&2; exit 1; }
+          gh auth setup-git --hostname github.com
 
       - name: Build and Package
         uses: BigWigsMods/packager@v2
+        with:
+          args: -u
+        env:
+          GH_TOKEN: ${{ secrets.ORBIT_PAT }}

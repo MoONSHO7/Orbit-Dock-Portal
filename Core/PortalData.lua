@@ -1,7 +1,7 @@
 local _, addon = ...
 addon.PortalData = {}
 
-local L = Orbit.L
+local L = addon.L
 local PD = addon.PortalData
 
 -- [ CATEGORY CONFIGURATION ] ------------------------------------------------------------------------------------------
@@ -31,53 +31,53 @@ PD.CategoryOrder = {
 
 PD.CategoryNames = {
     SEASONAL_DUNGEON = L.PLU_PORTAL_CAT_CURRENT_SEASON,
-    SEASONAL_RAID    = L.PLU_PORTAL_CAT_CURRENT_RAID,
-    HEARTHSTONE      = L.PLU_PORTAL_CAT_HEARTHSTONE,
-    HOUSING          = L.PLU_PORTAL_CAT_HOUSING,
-    FAVORITE         = L.PLU_PORTAL_CAT_FAVORITES,
-    CLASS            = L.PLU_PORTAL_CAT_CLASS,
-    MAGE_TELEPORT    = L.PLU_PORTAL_CAT_MAGE,
-    RAID             = L.PLU_PORTAL_CAT_RAID,
+    SEASONAL_RAID = L.PLU_PORTAL_CAT_CURRENT_RAID,
+    HEARTHSTONE = L.PLU_PORTAL_CAT_HEARTHSTONE,
+    HOUSING = L.PLU_PORTAL_CAT_HOUSING,
+    FAVORITE = L.PLU_PORTAL_CAT_FAVORITES,
+    CLASS = L.PLU_PORTAL_CAT_CLASS,
+    MAGE_TELEPORT = L.PLU_PORTAL_CAT_MAGE,
+    RAID = L.PLU_PORTAL_CAT_RAID,
     MIDNIGHT_DUNGEON = L.PLU_PORTAL_CAT_MIDNIGHT_D,
-    TWW_DUNGEON      = L.PLU_PORTAL_CAT_TWW_D,
-    DF_DUNGEON       = L.PLU_PORTAL_CAT_DF_D,
-    SL_DUNGEON       = L.PLU_PORTAL_CAT_SL_D,
-    BFA_DUNGEON      = L.PLU_PORTAL_CAT_BFA_D,
-    LEGION_DUNGEON   = L.PLU_PORTAL_CAT_LEGION_D,
-    WOD_DUNGEON      = L.PLU_PORTAL_CAT_WOD_D,
-    WOTLK_DUNGEON    = L.PLU_PORTAL_CAT_WOTLK_D,
-    MOP_DUNGEON      = L.PLU_PORTAL_CAT_MOP_D,
-    CATA_DUNGEON     = L.PLU_PORTAL_CAT_CATA_D,
-    CLASSIC_DUNGEON  = L.PLU_PORTAL_CAT_CLASSIC_D,
-    ENGINEER         = L.PLU_PORTAL_CAT_ENGINEER,
-    TOY              = L.PLU_PORTAL_CAT_TOY,
+    TWW_DUNGEON = L.PLU_PORTAL_CAT_TWW_D,
+    DF_DUNGEON = L.PLU_PORTAL_CAT_DF_D,
+    SL_DUNGEON = L.PLU_PORTAL_CAT_SL_D,
+    BFA_DUNGEON = L.PLU_PORTAL_CAT_BFA_D,
+    LEGION_DUNGEON = L.PLU_PORTAL_CAT_LEGION_D,
+    WOD_DUNGEON = L.PLU_PORTAL_CAT_WOD_D,
+    WOTLK_DUNGEON = L.PLU_PORTAL_CAT_WOTLK_D,
+    MOP_DUNGEON = L.PLU_PORTAL_CAT_MOP_D,
+    CATA_DUNGEON = L.PLU_PORTAL_CAT_CATA_D,
+    CLASSIC_DUNGEON = L.PLU_PORTAL_CAT_CLASSIC_D,
+    ENGINEER = L.PLU_PORTAL_CAT_ENGINEER,
+    TOY = L.PLU_PORTAL_CAT_TOY,
 }
 
 -- [ CURRENT SEASON CONFIGURATION (Update each season!) ] --------------------------------------------------------------
 PD.CURRENT_SEASON_DUNGEONS = {
-    1286812,  -- Path of Venomous Evolution → Altar of Fangs (Midnight)
-    1286809,  -- Path of the Devious Smuggler → Murder Row (Midnight)
-    1286807,  -- Path of the Worthy Aspirant → Den of Nalorakk (Midnight)
-    1286801,  -- Path of the Blooming Verdure → The Blinding Vale (Midnight)
-    1286804,  -- Path of the Brutal Combatant → Voidscar Arena (Midnight)
-    1286831,  -- Path of the Slumbering Conqueror → Kings' Rest (Battle for Azeroth)
-    1286828,  -- Path of the Sacred Temple → Temple of Sethraliss (Battle for Azeroth)
-    393256,   -- Path of the Clutch Defender → Ruby Life Pools (Dragonflight)
+    1286812, -- Path of Venomous Evolution → Altar of Fangs (Midnight)
+    1286809, -- Path of the Devious Smuggler → Murder Row (Midnight)
+    1286807, -- Path of the Worthy Aspirant → Den of Nalorakk (Midnight)
+    1286801, -- Path of the Blooming Verdure → The Blinding Vale (Midnight)
+    1286804, -- Path of the Brutal Combatant → Voidscar Arena (Midnight)
+    1286831, -- Path of the Slumbering Conqueror → Kings' Rest (Battle for Azeroth)
+    1286828, -- Path of the Sacred Temple → Temple of Sethraliss (Battle for Azeroth)
+    393256, -- Path of the Clutch Defender → Ruby Life Pools (Dragonflight)
 }
 
 PD.CURRENT_SEASON_RAIDS = {}
 
 -- [ DUNGEON PORTALS BY EXPANSION ] ------------------------------------------------------------------------------------
 PD.MIDNIGHT_DUNGEON = {
-    { spellID = 1286812, name = "Altar of Fangs",      short = "AOF", challengeModeID = 588 },
-    { spellID = 1286809, name = "Murder Row",          short = "MR",  challengeModeID = 587 },
-    { spellID = 1286807, name = "Den of Nalorakk",     short = "DON", challengeModeID = 586 },
-    { spellID = 1286801, name = "The Blinding Vale",   short = "BV",  challengeModeID = 584 },
-    { spellID = 1286804, name = "Voidscar Arena",      short = "VA",  challengeModeID = 585 },
-    { spellID = 1254572, name = "Magisters' Terrace",  short = "MT",  challengeModeID = 558 },
-    { spellID = 1254559, name = "Maisara Caverns",     short = "MC",  challengeModeID = 560 },
-    { spellID = 1254563, name = "Nexus-Point Xenas",   short = "NPX", challengeModeID = 559 },
-    { spellID = 1254400, name = "Windrunner Spire",    short = "WS",  challengeModeID = 557 },
+    { spellID = 1286812, name = "Altar of Fangs", short = "AOF", challengeModeID = 588 },
+    { spellID = 1286809, name = "Murder Row", short = "MR", challengeModeID = 587 },
+    { spellID = 1286807, name = "Den of Nalorakk", short = "DON", challengeModeID = 586 },
+    { spellID = 1286801, name = "The Blinding Vale", short = "BV", challengeModeID = 584 },
+    { spellID = 1286804, name = "Voidscar Arena", short = "VA", challengeModeID = 585 },
+    { spellID = 1254572, name = "Magisters' Terrace", short = "MT", challengeModeID = 558 },
+    { spellID = 1254559, name = "Maisara Caverns", short = "MC", challengeModeID = 560 },
+    { spellID = 1254563, name = "Nexus-Point Xenas", short = "NPX", challengeModeID = 559 },
+    { spellID = 1254400, name = "Windrunner Spire", short = "WS", challengeModeID = 557 },
 }
 
 PD.MIDNIGHT_RAID = {}
@@ -198,7 +198,7 @@ PD.CLASSIC_DUNGEON = {
 -- [ HEARTHSTONES ] ----------------------------------------------------------------------------------------------------
 PD.HEARTHSTONE_SHARED = {
     { itemID = 6948, name = "Hearthstone", type = "item" },
-    
+
     { itemID = 54452, name = "Ethereal Portal", type = "toy" },
     { itemID = 64488, name = "The Innkeeper's Daughter", type = "toy" },
     { itemID = 93672, name = "Dark Portal", type = "toy" },
@@ -241,7 +241,7 @@ PD.HEARTHSTONE_UNIQUE = {
 -- [ CLASS PORTALS ] ---------------------------------------------------------------------------------------------------
 PD.CLASS = {
     { spellID = 50977, name = "Death Gate", class = "DEATHKNIGHT" },
-    
+
     { spellID = 18960, name = "Teleport: Moonglade", class = "DRUID" },
     { spellID = 193753, name = "Dreamwalk", class = "DRUID" },
 
@@ -270,7 +270,7 @@ PD.MAGE_TELEPORT = {
     { spellID = 132621, name = "Teleport: Vale of Eternal Blossoms", faction = "Alliance" },
     { spellID = 176248, name = "Teleport: Stormshield", faction = "Alliance" },
     { spellID = 281403, name = "Teleport: Boralus", faction = "Alliance" },
-    
+
     { spellID = 3567, name = "Teleport: Orgrimmar", faction = "Horde" },
     { spellID = 3563, name = "Teleport: Undercity", faction = "Horde" },
     { spellID = 3566, name = "Teleport: Thunder Bluff", faction = "Horde" },
@@ -281,7 +281,7 @@ PD.MAGE_TELEPORT = {
     { spellID = 132627, name = "Teleport: Vale of Eternal Blossoms", faction = "Horde" },
     { spellID = 176242, name = "Teleport: Warspear", faction = "Horde" },
     { spellID = 281404, name = "Teleport: Dazar'alor", faction = "Horde" },
-    
+
     { spellID = 53140, name = "Teleport: Dalaran - Northrend" },
     { spellID = 224869, name = "Teleport: Dalaran - Broken Isles" },
     { spellID = 344587, name = "Teleport: Oribos" },
@@ -303,7 +303,7 @@ PD.MAGE_PORTAL = {
     { spellID = 132620, name = "Portal: Vale of Eternal Blossoms", faction = "Alliance" },
     { spellID = 176246, name = "Portal: Stormshield", faction = "Alliance" },
     { spellID = 281400, name = "Portal: Boralus", faction = "Alliance" },
-    
+
     { spellID = 11417, name = "Portal: Orgrimmar", faction = "Horde" },
     { spellID = 11418, name = "Portal: Undercity", faction = "Horde" },
     { spellID = 11420, name = "Portal: Thunder Bluff", faction = "Horde" },
@@ -314,7 +314,7 @@ PD.MAGE_PORTAL = {
     { spellID = 132626, name = "Portal: Vale of Eternal Blossoms", faction = "Horde" },
     { spellID = 176244, name = "Portal: Warspear", faction = "Horde" },
     { spellID = 281402, name = "Portal: Dazar'alor", faction = "Horde" },
-    
+
     { spellID = 53142, name = "Portal: Dalaran - Northrend" },
     { spellID = 224871, name = "Portal: Dalaran - Broken Isles" },
     { spellID = 344597, name = "Portal: Oribos" },
@@ -330,25 +330,25 @@ PD.ENGINEER = {
     { itemID = 18984, name = "Dimensional Ripper - Everlook", type = "item", reqSkill = 260 },
     { itemID = 30544, name = "Ultrasafe Transporter: Toshley's Station", type = "item", reqSkill = 350 },
     { itemID = 30542, name = "Dimensional Ripper - Area 52", type = "item", reqSkill = 350 },
-    
+
     { itemID = 48933, name = "Wormhole Generator: Northrend", type = "toy", reqSkill = 415 },
-    
+
     { itemID = 87215, name = "Wormhole Generator: Pandaria", type = "toy", reqSkill = 600 },
-    
+
     { itemID = 112059, name = "Wormhole Centrifuge", type = "toy", reqSkill = 700 },
-    
+
     { itemID = 151652, name = "Wormhole Generator: Argus", type = "toy", reqSkill = 800 },
-    
+
     { itemID = 168807, name = "Wormhole Generator: Kul Tiras", type = "toy", reqSkill = 1, faction = "Alliance" },
     { itemID = 168808, name = "Wormhole Generator: Zandalar", type = "toy", reqSkill = 1, faction = "Horde" },
     { itemID = 167075, name = "Ultrasafe Transporter: Mechagon", type = "item", reqSkill = 1 },
-    
+
     { itemID = 172924, name = "Wormhole Generator: Shadowlands", type = "toy", reqSkill = 1 },
-    
+
     { itemID = 198156, name = "Wyrmhole Generator: Dragon Isles", type = "toy", reqSkill = 1 },
-    
+
     { itemID = 221966, name = "Wormhole Generator: Khaz Algar", type = "toy", reqSkill = 1 },
-    
+
     { itemID = 248485, name = "Wormhole Generator: Quel'Thalas", type = "toy", reqSkill = 1 },
 }
 
@@ -377,7 +377,7 @@ PD.TOY = {
     { itemID = 243056, name = "Delver's Mana-Bound Ethergate", destination = "Dornogal" },
     { itemID = 253629, name = "Personal Key to the Arcantina", destination = "The Arcantina" },
     { itemID = 276371, name = "Lightveil Recall Beacon", destination = "Umbral Base Camp" },
-    
+
     { itemID = 40585, name = "Signet of the Kirin Tor", destination = "Dalaran (Northrend)", type = "item" },
     { itemID = 40586, name = "Band of the Kirin Tor", destination = "Dalaran (Northrend)", type = "item" },
     { itemID = 44934, name = "Loop of the Kirin Tor", destination = "Dalaran (Northrend)", type = "item" },
@@ -394,22 +394,34 @@ PD.TOY = {
     { itemID = 51558, name = "Runed Loop of the Kirin Tor", destination = "Dalaran (Northrend)", type = "item" },
     { itemID = 51559, name = "Runed Ring of the Kirin Tor", destination = "Dalaran (Northrend)", type = "item" },
     { itemID = 51557, name = "Runed Signet of the Kirin Tor", destination = "Dalaran (Northrend)", type = "item" },
-    
+
     { itemID = 46874, name = "Argent Crusader's Tabard", destination = "Argent Tournament", type = "item" },
     { itemID = 63378, name = "Hellscream's Reach Tabard", destination = "Tol Barad", type = "item", faction = "Horde" },
-    { itemID = 63379, name = "Baradin's Wardens Tabard", destination = "Tol Barad", type = "item", faction = "Alliance" },
-    
+    {
+        itemID = 63379,
+        name = "Baradin's Wardens Tabard",
+        destination = "Tol Barad",
+        type = "item",
+        faction = "Alliance",
+    },
+
     { itemID = 65360, name = "Cloak of Coordination", destination = "Stormwind", type = "item", faction = "Alliance" },
     { itemID = 65274, name = "Cloak of Coordination", destination = "Orgrimmar", type = "item", faction = "Horde" },
     { itemID = 63206, name = "Wrap of Unity", destination = "Stormwind", type = "item", faction = "Alliance" },
     { itemID = 63207, name = "Wrap of Unity", destination = "Orgrimmar", type = "item", faction = "Horde" },
     { itemID = 63352, name = "Shroud of Cooperation", destination = "Stormwind", type = "item", faction = "Alliance" },
     { itemID = 63353, name = "Shroud of Cooperation", destination = "Orgrimmar", type = "item", faction = "Horde" },
-    
+
     { itemID = 37863, name = "Direbrew's Remote", destination = "Blackrock Depths", type = "item" },
     { itemID = 52251, name = "Jaina's Locket", destination = "Dalaran (Northrend)", type = "item" },
     { itemID = 32757, name = "Blessed Medallion of Karabor", destination = "Black Temple", type = "item" },
-    { itemID = 50287, name = "Boots of the Bay", destination = "Booty Bay", type = "item", reqSkillLine = 356, reqSkill = 200 },
+    {
+        itemID = 50287,
+        name = "Boots of the Bay",
+        destination = "Booty Bay",
+        type = "item",
+        reqSkillLine = 356,
+        reqSkill = 200,
+    },
     { itemID = 142469, name = "Violet Seal of the Grand Magus", destination = "Karazhan", type = "item" },
 }
-

@@ -1,0 +1,54 @@
+name: Validate Portal
+
+on:
+  workflow_call:
+    secrets:
+      ORBIT_PAT:
+        required: true
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  validate:
+    if: github.event_name != 'pull_request' || (github.actor != 'dependabot[bot]' && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Authenticate private library access
+        env:
+          GH_TOKEN: ${{ secrets.ORBIT_PAT }}
+        run: |
+          test -n "$GH_TOKEN" || { echo "ORBIT_PAT must grant read access to LibOrbitUI." >&2; exit 1; }
+          gh auth setup-git --hostname github.com
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Lua 5.1 parser runtime
+        run: python -m pip install lupa==2.8
+
+      - name: Fetch pinned libraries
+        env:
+          GH_TOKEN: ${{ secrets.ORBIT_PAT }}
+        run: python .scripts/fetch-libs.py
+
+      - name: Validate runtime package
+        run: python .scripts/check-package.py --release
+
+  unavailable-library-coverage:
+    if: github.event_name == 'pull_request' && (github.actor == 'dependabot[bot]' || github.event.pull_request.head.repo.full_name != github.repository)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Explain private dependency limitation
+        run: echo "::notice::Full package validation requires private LibOrbitUI access and is unavailable for fork or Dependabot pull requests. Trusted validation must pass before tagging or publishing."

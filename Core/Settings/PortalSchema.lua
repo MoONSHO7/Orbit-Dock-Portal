@@ -1,139 +1,124 @@
 local _, addon = ...
-local Orbit = Orbit
-local L = Orbit.L
-
--- [ CONSTANTS ] -------------------------------------------------------------------------------------------------------
-local ANIM_MODE_SLIDE = 1
-local ANIM_MODE_FADE = 2
-
--- [ MODULE ] ----------------------------------------------------------------------------------------------------------
+local L = addon.L
 local Schema = {}
 addon.PortalSchema = Schema
 
-function Schema.Build(plugin, dialog, systemFrame, ctx)
-    local PD = addon.PortalData
-    local Scanner = addon.PortalScanner
-    local Combat = addon.PortalCombat
-    local SB = Orbit.Engine.SchemaBuilder
-    local schema = { controls = {}, extraButtons = {} }
+local function Slider(key, label, minimum, maximum, step, formatter)
+    return {
+        type = "slider",
+        key = key,
+        label = label,
+        min = minimum,
+        max = maximum,
+        step = step,
+        default = addon.PortalDefaults[key],
+        formatter = formatter,
+    }
+end
 
-    SB:SetTabRefreshCallback(dialog, plugin, systemFrame)
-    local currentTab = SB:AddSettingsTabs(schema, dialog, {
-        L.PLU_PORTAL_TAB_LAYOUT,
-        L.PLU_PORTAL_TAB_BEHAVIOURS,
-        L.PLU_PORTAL_TAB_CATEGORIES,
-    }, L.PLU_PORTAL_TAB_LAYOUT)
-
-    if currentTab == L.PLU_PORTAL_TAB_LAYOUT then
-        table.insert(
-            schema.controls,
-            { type = "checkbox", key = "HideLongCooldowns", label = L.PLU_PORTAL_HIDE_LONG_CD, default = true }
-        )
-        table.insert(schema.controls, {
-            type = "slider",
-            key = "FadeEffect",
-            label = L.PLU_PORTAL_FADE_EFFECT,
-            min = 0,
-            max = 100,
-            step = 5,
-            default = 0,
-            formatter = function(v)
-                return v == 0 and L.PLU_PORTAL_FADE_OFF or L.PLU_PORTAL_FADE_PCT_F:format(v)
-            end,
-        })
-        table.insert(schema.controls, {
-            type = "slider",
-            key = "IconSize",
-            label = L.PLU_PORTAL_ICON_SIZE,
-            min = 24,
-            max = 40,
-            step = 2,
-            default = 34,
-        })
-        table.insert(schema.controls, {
-            type = "slider",
-            key = "Spacing",
-            label = L.PLU_PORTAL_ICON_PADDING,
-            min = 0,
-            max = 50,
-            step = 1,
-            default = 3,
-            formatter = SB.FormatPixels,
-            mergeAtZero = true,
-        })
-        table.insert(schema.controls, {
-            type = "slider",
-            key = "MaxVisible",
-            label = L.PLU_PORTAL_MAX_VISIBLE,
-            min = 3,
-            max = 21,
-            step = 2,
-            default = 9,
-        })
-        table.insert(schema.controls, {
-            type = "slider",
-            key = "Compactness",
-            label = L.PLU_PORTAL_CURVE,
-            min = 0,
-            max = 100,
-            step = 1,
-            default = 0,
-        })
-        table.insert(schema.controls, {
-            type = "slider",
-            key = "Animation",
-            label = L.PLU_PORTAL_ANIMATION,
-            min = 0,
-            max = 2,
-            step = 1,
-            default = 0,
-            formatter = function(v)
-                if v >= ANIM_MODE_FADE then
-                    return L.PLU_PORTAL_ANIM_FADE
+local function ComponentControl(plugin, ctx, key, label)
+    return {
+        type = "checkbox",
+        label = label,
+        default = key ~= "DungeonShort",
+        getValue = function()
+            for _, disabled in ipairs(plugin:GetSetting(1, "DisabledComponents")) do
+                if disabled == key then
+                    return false
                 end
-                if v >= ANIM_MODE_SLIDE then
-                    return L.PLU_PORTAL_ANIM_SLIDE
-                end
-                return L.PLU_PORTAL_FADE_OFF
-            end,
-        })
-    elseif currentTab == L.PLU_PORTAL_TAB_BEHAVIOURS then
-        table.insert(schema.controls, {
-            type = "checkbox",
-            key = "EnableKeyboardSearch",
-            label = L.PLU_PORTAL_ENABLE_KEYBOARD_SEARCH,
-            default = true,
-        })
-    elseif currentTab == L.PLU_PORTAL_TAB_CATEGORIES then
-        local counts = {}
-        for _, item in ipairs(Scanner:GetOrderedList()) do
-            counts[item.category] = (counts[item.category] or 0) + 1
-        end
-        for _, cat in ipairs(PD.CategoryOrder) do
-            local count = counts[cat] or 0
-            if cat ~= "FAVORITE" and count > 0 then
-                local label = PD.CategoryNames[cat] or cat
-                table.insert(schema.controls, {
-                    type = "checkbox",
-                    label = label,
-                    default = true,
-                    valueText = "|cFFFFD100" .. count .. "|r",
-                    onChange = function(val)
-                        local enabled = plugin:GetSetting(1, "EnabledCategories") or {}
-                        enabled[cat] = val
-                        plugin:SetSetting(1, "EnabledCategories", enabled)
-                        if Combat.CanInteract() then
-                            ctx.RefreshDock()
-                        end
-                    end,
-                    getValue = function()
-                        local enabled = plugin:GetSetting(1, "EnabledCategories") or {}
-                        return enabled[cat] ~= false
-                    end,
-                })
             end
-        end
-    end
+            return true
+        end,
+        onChange = function(shown)
+            local values = {}
+            for _, disabled in ipairs(plugin:GetSetting(1, "DisabledComponents")) do
+                if disabled ~= key then
+                    values[#values + 1] = disabled
+                end
+            end
+            if not shown then
+                values[#values + 1] = key
+            end
+            plugin:SetSetting(1, "DisabledComponents", values)
+            ctx.RequestRefresh()
+        end,
+    }
+end
 
-    Orbit.Engine.Config:Render(dialog, systemFrame, plugin, schema)
+function Schema.Tabs(plugin, ctx)
+    return {
+        {
+            id = "layout",
+            label = L.PLU_PORTAL_TAB_LAYOUT,
+            controls = {
+                {
+                    type = "checkbox",
+                    key = "HideLongCooldowns",
+                    label = L.PLU_PORTAL_HIDE_LONG_CD,
+                    default = addon.PortalDefaults.HideLongCooldowns,
+                },
+                Slider("FadeEffect", L.PLU_PORTAL_FADE_EFFECT, 0, 100, 5, function(v)
+                    return v == 0 and L.PLU_PORTAL_FADE_OFF or L.PLU_PORTAL_FADE_PCT_F:format(v)
+                end),
+                Slider("IconSize", L.PLU_PORTAL_ICON_SIZE, 24, 40, 2),
+                Slider("Spacing", L.PLU_PORTAL_ICON_PADDING, 0, 50, 1, function(v)
+                    return tostring(v) .. " px"
+                end),
+                Slider("MaxVisible", L.PLU_PORTAL_MAX_VISIBLE, 3, 21, 2),
+                Slider("Compactness", L.PLU_PORTAL_CURVE, 0, 100, 1),
+                Slider("Animation", L.PLU_PORTAL_ANIMATION, 0, 2, 1, function(v)
+                    return v == 2 and L.PLU_PORTAL_ANIM_FADE
+                        or v == 1 and L.PLU_PORTAL_ANIM_SLIDE
+                        or L.PLU_PORTAL_FADE_OFF
+                end),
+            },
+        },
+        {
+            id = "behaviours",
+            label = L.PLU_PORTAL_TAB_BEHAVIOURS,
+            controls = {
+                {
+                    type = "checkbox",
+                    key = "EnableKeyboardSearch",
+                    label = L.PLU_PORTAL_ENABLE_KEYBOARD_SEARCH,
+                    default = addon.PortalDefaults.EnableKeyboardSearch,
+                },
+                ComponentControl(plugin, ctx, "DungeonScore", L.PLU_PORTAL_RATING),
+                ComponentControl(plugin, ctx, "DungeonShort", L.PLU_PORTAL_SHORT_LABEL),
+                ComponentControl(plugin, ctx, "FavouriteStar", L.PLU_PORTAL_FAVORITE_MARKER),
+                ComponentControl(plugin, ctx, "Timer", L.PLU_PORTAL_TIMER),
+            },
+        },
+        {
+            id = "categories",
+            label = L.PLU_PORTAL_TAB_CATEGORIES,
+            controls = function()
+                local controls, counts = {}, {}
+                for _, item in ipairs(addon.PortalScanner:GetOrderedList()) do
+                    counts[item.category] = (counts[item.category] or 0) + 1
+                end
+                for _, category in ipairs(addon.PortalData.CategoryOrder) do
+                    local key, count = category, counts[category] or 0
+                    if key ~= "FAVORITE" and count > 0 then
+                        controls[#controls + 1] = {
+                            type = "checkbox",
+                            label = addon.PortalData.CategoryNames[key],
+                            default = true,
+                            valueText = tostring(count),
+                            getValue = function()
+                                return plugin:GetSetting(1, "EnabledCategories")[key] ~= false
+                            end,
+                            onChange = function(value)
+                                local enabled = CopyTable(plugin:GetSetting(1, "EnabledCategories"))
+                                enabled[key] = value
+                                plugin:SetSetting(1, "EnabledCategories", enabled)
+                                ctx.RequestRefresh()
+                            end,
+                        }
+                    end
+                end
+                return controls
+            end,
+        },
+    }
 end

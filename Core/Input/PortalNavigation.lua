@@ -1,5 +1,5 @@
 local _, addon = ...
-local Orbit = Orbit
+local Services = addon.PortalServices
 
 local ipairs = ipairs
 local table_sort = table.sort
@@ -29,8 +29,10 @@ local searchBuffer = ""
 local searchBufferExpiry = 0
 local preFilterScroll = 0
 local installedCtx
-local searchFrame
-local searchDisplay
+local searchFrame = CreateFrame("Frame", nil, UIParent)
+searchFrame:Hide()
+local searchDisplay = CreateFrame("Frame", nil, UIParent)
+searchDisplay:Hide()
 local searchDisplayText
 local searchFadeAnim
 local keyboardSearchEnabled = true
@@ -71,8 +73,10 @@ local function ClearBufferAndDisplay()
     if searchFadeAnim and searchFadeAnim:IsPlaying() then
         searchFadeAnim:Stop()
     end
-    searchDisplay:SetAlpha(1)
-    searchDisplay:Hide()
+    searchDisplay:SetAlpha(InCombatLockdown() and 0 or 1)
+    if not InCombatLockdown() then
+        searchDisplay:Hide()
+    end
 end
 
 local function ShowSearchBufferText(hasMatch)
@@ -162,7 +166,7 @@ end
 function Navigation.Install(ctx)
     installedCtx = ctx
     keyboardSearchEnabled = ctx.plugin:GetSetting(1, "EnableKeyboardSearch")
-    local dock = ctx.dock
+    local frame = ctx.frame
     local state = ctx.state
     local Combat = addon.PortalCombat
     local NormalizeMaxVisible = addon.PortalLayout.NormalizeMaxVisible
@@ -256,11 +260,10 @@ function Navigation.Install(ctx)
         ShowSearchBufferText(hasMatch)
     end
 
-    dock:EnableMouseWheel(true)
-    dock:SetScript("OnMouseWheel", OnMouseWheel)
+    frame:EnableMouseWheel(true)
+    frame:SetScript("OnMouseWheel", OnMouseWheel)
     ctx.HandleWheel = OnMouseWheel
 
-    searchFrame = CreateFrame("Frame", nil, dock)
     searchFrame:EnableKeyboard(true)
     if not InCombatLockdown() then
         searchFrame:SetPropagateKeyboardInput(true)
@@ -308,7 +311,7 @@ function Navigation.Install(ctx)
             return
         end
         self.pollElapsed = 0
-        if not (ctx.IsCursorOverDock and ctx.IsCursorOverDock()) then
+        if not (ctx.IsCursorOverFrame and ctx.IsCursorOverFrame()) then
             if ctx.HoverExit then
                 ctx.HoverExit()
             end
@@ -324,15 +327,15 @@ function Navigation.Install(ctx)
     end)
 
     local fontPath = addon.PortalCanvas.GetGlobalFontPath()
-    searchDisplay = CreateFrame("Frame", nil, dock)
-    searchDisplay:SetFrameLevel(dock:GetFrameLevel() + DISPLAY_LEVEL_OFFSET)
+    searchDisplay:SetParent(frame)
+    searchDisplay:SetFrameLevel(frame:GetFrameLevel() + DISPLAY_LEVEL_OFFSET)
     searchDisplay:SetSize(1, 1)
-    searchDisplay:SetPoint("BOTTOMLEFT", dock, "BOTTOMRIGHT", DISPLAY_GAP, 0)
+    searchDisplay:SetPoint("BOTTOMLEFT", frame, "BOTTOMRIGHT", DISPLAY_GAP, 0)
     searchDisplay:Hide()
 
     searchDisplayText = searchDisplay:CreateFontString(nil, "OVERLAY")
     searchDisplayText:SetPoint("BOTTOMLEFT")
-    Orbit.Skin:SetFontWithShadow(searchDisplayText, fontPath, DISPLAY_FONT_SIZE, "OUTLINE")
+    Services.SetFont(searchDisplayText, fontPath, DISPLAY_FONT_SIZE, "OUTLINE")
     searchDisplayText:SetTextColor(1, 1, 1)
 
     searchFadeAnim = searchDisplay:CreateAnimationGroup()
@@ -346,7 +349,13 @@ function Navigation.Install(ctx)
 end
 
 function Navigation.ShowSearch()
-    if searchFrame and keyboardSearchEnabled then
+    if
+        installedCtx
+        and keyboardSearchEnabled
+        and installedCtx.plugin._portalActive
+        and not installedCtx.state.isEditModeActive
+        and addon.PortalCombat.CanInteract()
+    then
         searchFrame:Show()
     end
 end

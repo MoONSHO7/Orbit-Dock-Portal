@@ -1,56 +1,36 @@
-# Orbit Portal
+# Orbit: Portal
 
 ## Description
-Dock-style portal UI with arc-wrap layout, centre-out edge-fade, and a hover reveal animation. A separate sub-addon (`Orbit_Portal.toc`, `## Dependencies: Orbit`) — it depends on Orbit Core; Orbit Core must never reference it.
+A portal launcher with arc layout, hover reveal, favorites, category navigation and keyboard search. This development preview runs independently or attaches to an installed Orbit host; `Orbit_Portal` embeds LibOrbitUI and has its own `OrbitPortalDB`.
 
 ## Purpose
-Replaces standalone portal addons with a compact dock of available teleports, portals, hearthstones, toys, and housing. Icons lie along a configurable arc and dim per step outward from the centre; shift+scroll jumps categories; while hovering, optional keyboard search filters the dock to the matching portals — short code like `MT`, a name, or a category like `Legion` (surfaces the whole Legion Dungeons category), prefix/substring ranked with prefixes on top. The readout turns red on no match, `TAB`/wheel page any overflow, and cursor movement over the dock keeps the filter up so a result can be moused over and clicked.
+Prove that the shared movement and settings UI can serve both Orbit and standalone products while retaining Portal's travel behavior. This is the standalone library pilot, not the completed migration/export release.
 
 ## Implementation
-`Core/PortalDock.lua` is the plugin root: it calls `Orbit:RegisterPlugin("Portal Dock", "Orbit_Portal", …)`, owns the dock frame, and owns a shared `ctx` table (exposed as `addon.PortalDockContext`) that every extracted module receives — `ctx.plugin`, `ctx.dock`, `ctx.content` (the icon-bearing child), `ctx.state` (`portalList`, `visibleIcons`, `scrollOffset`, `mythicPlusCache`, `pendingRefresh`, …), and three repaint doors:
+The TOC loads the embedded library and product localization first. `PortalDefaults.lua` owns basic defaults; `PortalStore.lua` owns the standalone preview store. `PortalServices.lua` creates the private UI context and binds LibOrbitUI.Text/TextPosition for cached default fonts and basic authored placement. `Integrations/Orbit.lua` selects the legacy host bridge before feature registration; `Integrations/OrbitCanvas.lua` retains rich Canvas previews.
 
-- `ctx.RefreshDock()` — full rescan + filter + sort + paint, combat-gated. Set-change events only (category toggle, rescan, `SPELLS_CHANGED`, `PLAYER_ENTERING_WORLD`).
-- `ctx.RepaintIcons()` — paint-only from cached `state.portalList`, no Scanner call. Hot paths: scroll, type-to-search, cooldown ticker. Renders `state.searchFilter` (ranked matches) when set, else the full list; shows each item once — `min(count, maxVisible)` centred — windowing `renderList` with wraparound so the wheel cycles a short result set (a single match can't scroll). The dock **frame** always sizes to the full-list `maxVisible` so the hover zone never collapses under the cursor while filtering.
-- `ctx.RequestRefresh()` — debounced (`Orbit.Async`, key `OrbitPortal_Refresh`): coalesces the PEW/ApplySettings/housing/`SPELLS_CHANGED`/`TOYS_UPDATED` burst into one trailing scan, refreshing now or deferring `pendingRefresh` to `PLAYER_REGEN_ENABLED` when combat starts mid-window. Use in any handler that may fire in combat or in bursts.
+`Portal.lua` owns one controller and frame, an icon pool and a shared context (`ctx`). Data enters through `PortalData.lua` and `PortalScanner.lua`, geometry through `PortalLayout.lua`, and live decoration through `PortalCanvas.lua`. Secure button construction/configuration belongs to `View/PortalIcon.lua`; tooltips and reveal animations remain separate view owners. `State/PortalCombat.lua` reconciles combat/encounter restrictions, while `State/PortalFavorites.lua` persists copied preferences through the selected controller.
 
-Load order (`Orbit_Portal.toc`) is data → pure helpers → runtime → root; no sibling requires `PortalDock` at file-scope load, runtime lookups via `addon.Portal*` are fine:
+`ctx.Refresh()` scans and paints; `ctx.RepaintIcons()` paints the cached list. Gameplay, reveal and search frames are created during Portal's TOC load in both modes. `ctx.RequestRefresh()` queues timer creation through the gameplay frame's one-shot update; the private library runtime owns scan delays, cooldown ticks and refresh debouncing. Navigation captures search input only during frame interaction and preserves cursor/timeout behavior. Disabling cancels queued and timed gameplay work; a stable visibility reconciler remains available to finish restricted changes.
 
-| File | Job |
-|---|---|
-| `Core/PortalData.lua` | static portal/toy/hearthstone definitions, category order, seasonal lists |
-| `Core/PortalLayout.lua` | pure arc-wrap + centre-out fade math, stateless |
-| `Core/PortalCanvas.lua` | Canvas Mode per-icon apply (DungeonScore, DungeonShort, Timer, FavouriteStar) |
-| `Core/PortalScanner.lua` | runtime detection — spells, toys, items, housing, cooldowns |
-| `Core/State/PortalFavorites.lua` | favourite persistence via `Plugin:GetSetting/SetSetting`; copies the settings table before toggling because defaults are frozen |
-| `Core/State/PortalCombat.lua` | `CanInteract` gate + reconciler on `PLAYER_REGEN_*` / `ENCOUNTER_*` |
-| `Core/View/PortalTooltip.lua` | hover tooltip (M+ season best, cooldowns) |
-| `Core/View/PortalIcon.lua` | secure action-button factory + per-data configure |
-| `Core/View/PortalReveal.lua` | hover reveal/conceal animation (Off / Slide / Fade) |
-| `Core/Input/PortalNavigation.lua` | scroll + shift-category-jump + typeahead search capture frame |
-| `Core/Settings/PortalSchema.lua` | settings UI schema (Layout + Behaviours + Categories tabs) |
-| `Core/Settings/PortalCommands.lua` | `scan` command from Spotlight — wipes the M+ cache, refreshes |
-| `Core/PortalDock.lua` | plugin root — registration, ctx, dock frame, RefreshDock, lifecycle |
+`Settings/PortalSchema.lua` declares one set of tabs and controls. Orbit and `PortalBoot.lua` bind them to the same LibOrbitUI window, panel, tab strip, scrollbar and common widget implementations. The independent dialog uses shared defaults and compact footer actions; Boot also registers an AddOns Settings entry. Without Orbit, the shared Edit Mode overlay selects/moves the existing frame and commits position at successful drag stop. Orbit owns advanced movement and Canvas when its bridge is selected.
 
-Orbit Core surface used: `Orbit:RegisterPlugin` / `PluginMixin` (`GetSetting`/`SetSetting`, standard + visibility events), `OrbitEngine.Config:Render`, `OrbitEngine.FramePersistence` (settings listener, `RestorePosition`), `OrbitEngine.FrameOrientation` (drag orientation), `OrbitEngine.Pixel`, `OrbitEngine.PositionUtils` / `OverrideUtils` for Canvas Mode text, `Orbit.CombatManager`, `Orbit.EventBus`, `Orbit.Messages`, `Orbit.L`.
-
-Dock geometry follows Orbit's sizing contract: `IconSize` is a logical content dimension snapped at render time, while `Spacing` and the compact thickness pad are physical-pixel details resolved against the dock's effective scale.
+Use `/orbitportal` for settings, `/orbitportal move` for native Edit Mode, `/orbitportal reset` for placement, `/orbitportal scan` for rescan and `/orbitportal status` for the active settings provider.
 
 ## Gotchas
-- Dependency direction is inward only: `PortalDock` → sibling modules → `PortalLayout` / `PortalCanvas` / `PortalData`.
-- Secure button attributes must be cleared during Edit Mode; scanning is combat-safe by queuing through `pendingRefresh`. The dock is hidden in combat and the reveal tween snaps and stops under lockdown. Secure icon descendants also protect ancestor mouse mutation, so lifecycle alpha updates immediately while dock `EnableMouse` coalesces through `CombatManager` until regen.
-- The cast binds to `type1` (left mouse) only, leaving right-click free to toggle favourite (insecure `PreClick`, gated on `down` so the up-edge doesn't double-toggle) — right-click never casts.
-- Mouse-enabled icons swallow the wheel instead of passing it to the dock, so each icon forwards `OnMouseWheel` to the dock handler via `ctx.HandleWheel` — otherwise scrolling over a result (which covers the dock) wouldn't scroll/page.
-- Filter engage/clear fades the new icon set in (`state.animatePaint` one-shot → `Icon.PlayAppear`); it animates **alpha only** because `SetScale` on the secure buttons would taint in combat. Refines (query→query) and scroll/cooldown repaints snap, so fast typing doesn't strobe.
-- The reveal animation moves/fades `ctx.content` only, never the dock — the dock stays a fixed hover-summon zone. `ctx.HoverEnter`/`ctx.HoverExit` (both keyed on `ctx.IsCursorOverDock()`, hit rect padded by `HOVER_HIT_INSET`) are the single hover path for the dock, every icon, and the search reconciler, so moving Slide icons never pump hover state.
-- When enabled in Behaviours, typeahead consumes printable keys (typing `M` must not also open the map) but passes through ESC/Enter/F-keys/arrows/modifiers and everything while an editbox is focused. Matching is prefix-then-substring ranked (prefixes win); a live query **filters** the dock to the matches (`state.searchFilter`, each shown once and centred, windowed with wraparound so the wheel cycles a short set) and prints in the bottom-right readout (red on no match). The reset timer (~0.8s) is extended by typing, `TAB`, wheel, and **cursor movement over the dock** (`KeepSearchAlive`), so the results persist while the user reaches for one; it fires only once the cursor is idle/gone, clearing the filter back to the full list. `TAB`/wheel cycle/page the results and are consumed only while a query is live (else `TAB` targets normally). The dock frame stays full-size while filtering so the hover zone can't collapse under the cursor. RepaintIcons can `Hide` an icon out from under a stationary cursor and eat its `OnLeave`, so the shown (keyboard-capturing) search frame polls `IsCursorOverDock()` throttled and runs `HoverExit` on miss, and `HideSearch` restores key propagation — together they stop the frame being stranded shown and eating the keyboard. `RestorePropagationDefault` re-seats propagation after a combat-time `/reload` (`SetPropagateKeyboardInput` is protected in combat).
-- Cooldown display uses `SetCooldown()` — no manual OnUpdate tickers.
-- `CreateCanvasPreview` is a pooled build/apply lifecycle: static mask/icon/border/source regions are built once, while every open must return and refresh `options.reuse`, wipe the component map, and reacquire draggable components through Core.
-- Portal declares DungeonScore, DungeonShort, FavouriteStar, and Timer as owned Canvas keys through the strict Core catalog. Its custom star preview normalizes legacy/v3 placement through `ComponentPlacement`; the obsolete Status disabled entry is intentionally discarded.
-- User-visible strings go through `Orbit.L` (`PLU_PORTAL_*` plugin UI, `CMD_PORTAL_*` slash output).
+- This preview deliberately preserves the existing Orbit settings path when integrated. Standalone settings are a separate store. Automatic migration, independent preset management, full external-profile export and the negotiated generic host provider remain pending; disabling Orbit does not yet transfer its profile configuration.
+- The workspace-root `Orbit-Libs/LibOrbitUI/LibOrbitUI-1.0` runtime owns the shared library; consumers link directly to it during development. `Orbit/.scripts/package-orbit-ui.py` verifies the link, generates localization and records content hashes; staged packages contain regular files. Never hand-edit `Localization/Generated.lua`.
+- `.pkgmeta` pins the full commit SHA of [LibOrbitUI release 1.2](https://github.com/MoONSHO7/Orbit-Libs/releases/tag/LibOrbitUI-1.2), which provides API 1.5, and selects `LibOrbitUI/LibOrbitUI-1.0`. `python .scripts/fetch-libs.py` materializes that runtime for clean-checkout validation while preserving development junctions, including with `--force`. GitHub packaging reads the same pin. Portal has no color settings and embeds no ColorPicker dependency.
+- Orbit-Libs is public. CI retains its `ORBIT_PAT` Git credential policy and skips the full package check for fork and Dependabot pull requests. Trusted validation runs before tagging and publishing.
+- Blizzard Edit Mode Save/Revert does not govern standalone commits. A forced hidden/combat session aborts an unfinished drag; successful drag stop commits to the product store.
+- Secure action attributes are cleared during editing and when recycling icons. Left click activates travel; right-button down toggles a favorite once and never casts. The frame uses an installed secure combat visibility driver; encounter policy is checked separately before protected mutations.
+- Reveal moves/fades the icon content, leaving the frame as a fixed summon zone. Search must restore keyboard propagation on hover loss, repaint, disable and combat transitions. Icon wheel handlers forward to the same navigation owner.
+- `IconSize` is logical UI size; `Spacing` is physical pixels. Text and optional media have standalone defaults; advanced Canvas rendering stays in the Orbit bridge.
+- Future unsupported standalone stores stay untouched and inactive. The addon does not claim to import an unavailable Orbit SavedVariables file.
+- `Orbit-Portal` is the project and host plugin name; `Orbit_Portal` and `OrbitPortalDB` retain the installed addon and saved-data identity. Orbit migrates legacy enablement, visibility and frame-anchor names before hydration.
 
 ## Secrets
-`C_MythicPlus.GetSeasonBest*` returns and item cooldown start/duration can be secret: `PortalTooltip`, `PortalCanvas`, and `PortalScanner` guard with `issecretvalue()` before any comparison, arithmetic, or caching. Never use `pcall` as a secret-value shield.
+Season scores and cooldown values may be secret. Scanner, tooltip and live decoration guard before comparisons/arithmetic/caching; native cooldown rendering receives supported values directly. The shared library does not grant access to restricted data.
 
 ## References
-- [Localization](../Orbit/Orbit/Localization/README.md) — string conventions; workspace [AGENTS.md](../AGENTS.md) — architecture and secret-value rules.
-- `Orbit_Portal.toc` — load order and packaging metadata (CurseForge project 1439533).
+`Localization/README.md`, `Libs/LibOrbitUI-1.0/README.md`, workspace standalone requirements, `Orbit_Portal.toc` and the `.scripts` source checks. In-game verification uses `/reload`, real secure clicks, native Edit Mode and BugSack; mocked checks do not certify WoW behavior.

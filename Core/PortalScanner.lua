@@ -1,16 +1,15 @@
-
 local _, addon = ...
 addon.PortalScanner = {}
 
-local L = Orbit.L
+local L = addon.L
 local Scanner = addon.PortalScanner
 local PD = addon.PortalData
 
 -- [ CONSTANTS ] -------------------------------------------------------------------------------------------------------
-local HEARTHSTONE_ITEM_ID       = 6948
+local HEARTHSTONE_ITEM_ID = 6948
 local HEARTHSTONE_ICON_FALLBACK = 134414
-local ENGINEERING_SKILL_LINE    = 202
-local MIN_LEVEL_FOR_HOUSING     = 80
+local ENGINEERING_SKILL_LINE = 202
+local MIN_LEVEL_FOR_HOUSING = 80
 
 local PLAYER_CLASS = select(2, UnitClass("player"))
 local PLAYER_FACTION = UnitFactionGroup("player")
@@ -23,7 +22,9 @@ local function IsSpellAvailable(spellID)
 end
 
 local function IsToyUsable(itemID)
-    if not PlayerHasToy(itemID) then return false end
+    if not PlayerHasToy(itemID) then
+        return false
+    end
     return C_ToyBox.IsToyUsable(itemID)
 end
 
@@ -33,12 +34,16 @@ local function HasItem(itemID)
 end
 
 local function MeetsFactionRequirement(data)
-    if not data.faction then return true end
+    if not data.faction then
+        return true
+    end
     return data.faction == PLAYER_FACTION
 end
 
 local function MeetsClassRequirement(data)
-    if not data.class then return true end
+    if not data.class then
+        return true
+    end
     return data.class == PLAYER_CLASS
 end
 
@@ -46,33 +51,49 @@ local function GetProfessionRank(targetSkillLineID)
     for _, profIndex in pairs({ GetProfessions() }) do
         if profIndex then
             local _, _, skillRank, _, _, _, skillLineID = GetProfessionInfo(profIndex)
-            if skillLineID == targetSkillLineID then return skillRank end
+            if skillLineID == targetSkillLineID then
+                return skillRank
+            end
         end
     end
 end
 
 local function MeetsSkillRequirement(data)
-    if not data.reqSkillLine then return true end
+    if not data.reqSkillLine then
+        return true
+    end
     local rank = GetProfessionRank(data.reqSkillLine)
     return rank ~= nil and rank >= (data.reqSkill or 1)
 end
 
 local function GetCooldownInfo(isSpell, id)
-    if not id then return 0, 0 end
+    if not id then
+        return 0, 0
+    end
 
     local startTime, duration
     if isSpell then
         local info = C_Spell.GetSpellCooldown(id)
-        if info then startTime, duration = info.startTime, info.duration end
+        if info then
+            startTime, duration = info.startTime, info.duration
+        end
     else
         startTime, duration = C_Container.GetItemCooldown(id)
     end
 
-    if not startTime or not duration then return 0, 0 end
-    if issecretvalue(startTime) or issecretvalue(duration) then return 0, 0 end
-    if startTime <= 0 then return 0, 0 end
+    if not startTime or not duration then
+        return 0, 0
+    end
+    if issecretvalue(startTime) or issecretvalue(duration) then
+        return 0, 0
+    end
+    if startTime <= 0 then
+        return 0, 0
+    end
     local remaining = (startTime + duration) - GetTime()
-    if remaining < 0 then remaining = 0 end
+    if remaining < 0 then
+        remaining = 0
+    end
     return remaining, duration
 end
 
@@ -96,10 +117,14 @@ local function ProbeItemAvailability(data)
     local name, icon
     if data.type == "toy" then
         available = IsToyUsable(data.itemID)
-        if available then name, icon = GetItemDetails(data.itemID) end
+        if available then
+            name, icon = GetItemDetails(data.itemID)
+        end
     elseif data.type == "item" then
         available = HasItem(data.itemID)
-        if available then name, icon = GetItemDetails(data.itemID) end
+        if available then
+            name, icon = GetItemDetails(data.itemID)
+        end
     end
     return available, name, icon
 end
@@ -302,7 +327,9 @@ end
 function Scanner:ScanMageTeleports()
     local results = {}
 
-    if PLAYER_CLASS ~= "MAGE" then return results end
+    if PLAYER_CLASS ~= "MAGE" then
+        return results
+    end
 
     for _, data in ipairs(PD.MAGE_TELEPORT or {}) do
         if MeetsFactionRequirement(data) then
@@ -330,7 +357,9 @@ end
 function Scanner:ScanMagePortals()
     local results = {}
 
-    if PLAYER_CLASS ~= "MAGE" then return results end
+    if PLAYER_CLASS ~= "MAGE" then
+        return results
+    end
 
     for _, data in ipairs(PD.MAGE_PORTAL or {}) do
         if MeetsFactionRequirement(data) then
@@ -397,7 +426,9 @@ function Scanner:ScanEngineeringSpells()
     local results = {}
 
     local rank = GetProfessionRank(ENGINEERING_SKILL_LINE)
-    if not rank then return results end
+    if not rank then
+        return results
+    end
 
     for _, data in ipairs(PD.ENGINEER or {}) do
         if MeetsFactionRequirement(data) and (not data.reqSkill or rank >= data.reqSkill) then
@@ -550,9 +581,9 @@ function Scanner:ScanAll()
         end
     end
     appendRaids(self:ScanDungeonCategory(PD.MIDNIGHT_RAID, "RAID"))
-    appendRaids(self:ScanDungeonCategory(PD.TWW_RAID,      "RAID"))
-    appendRaids(self:ScanDungeonCategory(PD.DF_RAID,       "RAID"))
-    appendRaids(self:ScanDungeonCategory(PD.SL_RAID,       "RAID"))
+    appendRaids(self:ScanDungeonCategory(PD.TWW_RAID, "RAID"))
+    appendRaids(self:ScanDungeonCategory(PD.DF_RAID, "RAID"))
+    appendRaids(self:ScanDungeonCategory(PD.SL_RAID, "RAID"))
     allPortals.LEGION_DUNGEON = filterSeasonal(self:ScanDungeonCategory(PD.LEGION_DUNGEON, "LEGION_DUNGEON"))
     allPortals.WOD_DUNGEON = filterSeasonal(self:ScanDungeonCategory(PD.WOD_DUNGEON, "WOD_DUNGEON"))
     allPortals.WOTLK_DUNGEON = filterSeasonal(self:ScanDungeonCategory(PD.WOTLK_DUNGEON, "WOTLK_DUNGEON"))

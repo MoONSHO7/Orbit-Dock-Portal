@@ -6,7 +6,15 @@ on:
       - main
 
 jobs:
+  validate:
+    uses: ./.github/workflows/validate.yml
+    secrets:
+      ORBIT_PAT: ${{ secrets.ORBIT_PAT }}
+    permissions:
+      contents: read
+
   tag:
+    needs: validate
     runs-on: ubuntu-latest
     permissions:
       contents: write

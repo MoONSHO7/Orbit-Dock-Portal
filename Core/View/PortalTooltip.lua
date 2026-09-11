@@ -1,5 +1,6 @@
 local _, addon = ...
-local L = Orbit.L
+local L = addon.L
+local GameTooltip = addon.PortalServices.tooltip
 
 local math_floor = math.floor
 
@@ -8,13 +9,13 @@ local Tooltip = {}
 addon.PortalTooltip = Tooltip
 
 function Tooltip.Show(ctx, anchor, data)
-    local dock = ctx.dock
+    local frame = ctx.frame
     local cache = ctx.state.mythicPlusCache
     local PD = addon.PortalData
 
     local screenWidth = GetScreenWidth()
-    local dockCenterX = dock:GetCenter()
-    if dockCenterX and dockCenterX < screenWidth / 2 then
+    local frameCenterX = frame:GetCenter()
+    if frameCenterX and frameCenterX < screenWidth / 2 then
         GameTooltip:SetOwner(anchor, "ANCHOR_RIGHT", 10, 0)
     else
         GameTooltip:SetOwner(anchor, "ANCHOR_LEFT", -10, 0)
@@ -83,13 +84,31 @@ function Tooltip.Show(ctx, anchor, data)
             if level and durationSec and not issecretvalue(level) and not issecretvalue(durationSec) then
                 local mins = math_floor(durationSec / 60)
                 local secs = durationSec % 60
-                GameTooltip:AddDoubleLine(L.PLU_PORTAL_LEVEL_F:format(level), string.format("%d:%02d", mins, secs), 1, 1, 1, 1, 1, 1)
+                GameTooltip:AddDoubleLine(
+                    L.PLU_PORTAL_LEVEL_F:format(level),
+                    string.format("%d:%02d", mins, secs),
+                    1,
+                    1,
+                    1,
+                    1,
+                    1,
+                    1
+                )
                 cache[mapID].level = level
                 cache[mapID].durationSec = durationSec
             elseif cacheEntry and cacheEntry.level then
                 local mins = math_floor(cacheEntry.durationSec / 60)
                 local secs = cacheEntry.durationSec % 60
-                GameTooltip:AddDoubleLine(L.PLU_PORTAL_LEVEL_F:format(cacheEntry.level), string.format("%d:%02d", mins, secs), 1, 1, 1, 1, 1, 1)
+                GameTooltip:AddDoubleLine(
+                    L.PLU_PORTAL_LEVEL_F:format(cacheEntry.level),
+                    string.format("%d:%02d", mins, secs),
+                    1,
+                    1,
+                    1,
+                    1,
+                    1,
+                    1
+                )
             end
         else
             GameTooltip:AddLine(L.PLU_PORTAL_NO_BEST_RUN, 0.5, 0.5, 0.5)
